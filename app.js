@@ -22,9 +22,17 @@ if (newBtn) {
     });
 }
 
-window.addEventListener('click', () => {
+// Globaler Klick-Handler zum Schließen von Dropdowns
+window.addEventListener('click', (e) => {
     if (newDropdown && !newDropdown.classList.contains('hidden')) {
         newDropdown.classList.add('hidden');
+    }
+    
+    // Schließe das Notizbuch-Menü, wenn außerhalb geklickt wird
+    const nbMenu = document.getElementById('notebookOptionsMenu');
+    const menuBtn = document.getElementById('menuTriggerBtn');
+    if (nbMenu && menuBtn && !nbMenu.contains(e.target) && !menuBtn.contains(e.target)) {
+        nbMenu.classList.add('hidden');
     }
 });
 
@@ -94,12 +102,11 @@ function createNotebook() {
     loadNotebooksToDashboard();
 }
 
-// Öffnet das Notizbuch im Goodnotes-Layout und blendet den mobilen Header aus
+// Öffnet das Notizbuch im Editor
 function openNotebook(id) {
     const nb = notebooks.find(item => item.id === id);
     if (!nb) return;
 
-    // Mobile Header ausblenden für nahtlose Werkzeugleiste oben
     const mobileHeader = document.querySelector('.md\\:hidden.bg-white');
     if (mobileHeader) mobileHeader.classList.add('hidden');
 
@@ -110,12 +117,12 @@ function openNotebook(id) {
 
     const mainContainer = document.querySelector('main');
     mainContainer.innerHTML = `
-        <div class="flex flex-col h-full w-full bg-slate-300/80 overflow-hidden relative">
+        <div class="flex flex-col h-full w-full bg-slate-300 overflow-hidden relative">
             
             <!-- 1. Obere Blaue Hauptleiste -->
-            <header class="h-12 bg-[#2b59a2] text-white px-3 flex items-center justify-between shrink-0 z-20 shadow-sm select-none">
+            <header class="h-12 bg-[#2b59a2] text-white px-3 flex items-center justify-between shrink-0 z-30 shadow-sm select-none">
                 <div class="flex items-center gap-2 md:gap-3">
-                    <button onclick="location.reload()" class="p-1.5 hover:bg-white/10 rounded-lg transition-colors">
+                    <button onclick="location.reload()" class="p-1.5 hover:bg-white/10 rounded-lg transition-colors" title="Zurück">
                         <i data-lucide="home" class="w-5 h-5"></i>
                     </button>
                     <button class="p-1.5 hover:bg-white/10 rounded-lg">
@@ -126,7 +133,6 @@ function openNotebook(id) {
                     </button>
                 </div>
 
-                <!-- Mittlere Schnellwerkzeuge -->
                 <div class="flex items-center gap-1 md:gap-2">
                     <button class="p-1.5 hover:bg-white/10 rounded-lg"><i data-lucide="lasso" class="w-5 h-5"></i></button>
                     <button class="p-1.5 bg-white/20 rounded-xl"><i data-lucide="pen-tool" class="w-5 h-5"></i></button>
@@ -135,16 +141,37 @@ function openNotebook(id) {
                     <button class="p-1.5 hover:bg-white/10 rounded-lg"><i data-lucide="mic" class="w-5 h-5"></i></button>
                 </div>
 
-                <!-- Rechte Aktionen -->
-                <div class="flex items-center gap-1 md:gap-2">
-                    <button onclick="saveNotebookContent(${nb.id})" class="p-1.5 hover:bg-white/10 rounded-lg"><i data-lucide="file-plus" class="w-5 h-5"></i></button>
+                <!-- Rechte Aktionen & Drei-Punkte-Menü -->
+                <div class="flex items-center gap-1 md:gap-2 relative">
+                    <button onclick="saveNotebookContent(${nb.id})" class="p-1.5 hover:bg-white/10 rounded-lg" title="Speichern"><i data-lucide="file-plus" class="w-5 h-5"></i></button>
                     <button class="p-1.5 hover:bg-white/10 rounded-lg"><i data-lucide="upload" class="w-5 h-5"></i></button>
-                    <button class="p-1.5 hover:bg-white/10 rounded-lg"><i data-lucide="more-horizontal" class="w-5 h-5"></i></button>
+                    
+                    <!-- Trigger Button mit direktem onclick und ontouchend -->
+                    <button id="menuTriggerBtn" onclick="toggleNotebookMenu(event)" ontouchend="toggleNotebookMenu(event)" class="p-1.5 hover:bg-white/10 rounded-lg relative">
+                        <i data-lucide="more-horizontal" class="w-5 h-5"></i>
+                    </button>
+
+                    <!-- Das Pop-up-Menü (Standardmäßig display:none via 'hidden') -->
+                    <div id="notebookOptionsMenu" class="hidden absolute right-0 top-12 w-64 bg-white text-slate-800 rounded-2xl shadow-2xl border border-slate-200 py-2 z-50 select-none">
+                        <div class="px-4 py-2 border-b border-slate-100 font-bold text-xs truncate text-slate-700">
+                            ${nb.title}
+                        </div>
+                        <button onclick="saveNotebookContent(${nb.id}); closeMenu();" class="w-full text-left px-4 py-2.5 text-xs hover:bg-slate-100 flex items-center gap-2 text-slate-700">
+                            <i data-lucide="save" class="w-4 h-4 text-blue-600"></i> Notizen speichern
+                        </button>
+                        <button onclick="renameNotebookPrompt(${nb.id})" class="w-full text-left px-4 py-2.5 text-xs hover:bg-slate-100 flex items-center gap-2 text-slate-700">
+                            <i data-lucide="edit-3" class="w-4 h-4 text-slate-500"></i> Umbenennen
+                        </button>
+                        <div class="border-t border-slate-100 my-1"></div>
+                        <button onclick="deleteNotebook(${nb.id})" class="w-full text-left px-4 py-2.5 text-xs hover:bg-red-50 flex items-center gap-2 text-red-600">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i> In den Papierkorb
+                        </button>
+                    </div>
                 </div>
             </header>
 
             <!-- 2. Weiße Schwebende Werkzeugleiste (Floating Bar) -->
-            <div class="p-2 flex justify-center z-20 shrink-0">
+            <div class="py-1.5 px-2 flex justify-center z-20 shrink-0 bg-slate-300/50">
                 <div class="bg-white/95 backdrop-blur-md rounded-2xl shadow-md border border-slate-200/80 px-3 py-1.5 flex items-center gap-2 md:gap-4 overflow-x-auto max-w-full">
                     <div class="flex items-center gap-1 border-r border-slate-200 pr-2">
                         <button class="p-1 text-slate-400 hover:text-slate-700"><i data-lucide="undo-2" class="w-4 h-4"></i></button>
@@ -171,20 +198,63 @@ function openNotebook(id) {
             </div>
 
             <!-- 3. Haupt-Arbeitsbereich -->
-            <div class="flex-1 overflow-y-auto p-4 md:p-8 flex justify-center items-start">
-                <div class="w-full max-w-2xl bg-amber-50/50 min-h-[900px] shadow-xl rounded-sm p-6 md:p-12 border border-slate-300/70 relative transition-all ${paperPatternClass}">
-                    <textarea id="notebookContent" class="w-full flex-1 min-h-[800px] resize-none bg-transparent border-none focus:outline-none text-slate-800 leading-relaxed font-sans text-sm md:text-base z-10" placeholder="Schreibe deine Notizen...">${nb.content || ''}</textarea>
+            <div class="flex-1 overflow-y-auto p-3 md:p-6 flex justify-center items-start">
+                <div class="w-full max-w-xl md:max-w-2xl bg-amber-50/60 min-h-[75vh] md:min-h-[85vh] shadow-2xl rounded-sm p-6 md:p-12 border border-slate-300 relative transition-all ${paperPatternClass}">
+                    <textarea id="notebookContent" class="w-full h-full min-h-[70vh] resize-none bg-transparent border-none focus:outline-none text-slate-800 leading-relaxed font-sans text-sm md:text-base z-10" placeholder="Schreibe hier deine Notizen...">${nb.content || ''}</textarea>
                 </div>
             </div>
 
             <!-- 4. Seitenzahl-Pille unten links -->
-            <div class="absolute bottom-4 left-4 z-20 bg-white/90 backdrop-blur border border-slate-200/80 px-3 py-1 rounded-full text-xs font-medium text-slate-600 shadow-sm">
+            <div class="absolute bottom-3 left-3 z-20 bg-white/90 backdrop-blur border border-slate-200/80 px-2.5 py-0.5 rounded-full text-[11px] font-medium text-slate-600 shadow-sm">
                 1 von 1
             </div>
 
         </div>
     `;
     lucide.createIcons();
+}
+
+// Menü ein-/ausschalten per Touch & Klick
+function toggleNotebookMenu(event) {
+    if (event) {
+        event.stopPropagation();
+        event.preventDefault();
+    }
+    const menu = document.getElementById('notebookOptionsMenu');
+    if (menu) {
+        menu.classList.toggle('hidden');
+    }
+}
+
+function closeMenu() {
+    const menu = document.getElementById('notebookOptionsMenu');
+    if (menu) menu.classList.add('hidden');
+}
+
+// Notizbuch umbenennen
+function renameNotebookPrompt(id) {
+    closeMenu();
+    const nb = notebooks.find(item => item.id === id);
+    if (!nb) return;
+    const newTitle = prompt("Neuer Name für das Notizbuch:", nb.title);
+    if (newTitle && newTitle.trim() !== "") {
+        notebooks = notebooks.map(item => {
+            if (item.id === id) item.title = newTitle.trim();
+            return item;
+        });
+        localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
+        openNotebook(id);
+    }
+}
+
+// Notizbuch löschen
+function deleteNotebook(id) {
+    closeMenu();
+    if (confirm("Möchtest du dieses Notizbuch wirklich in den Papierkorb verschieben?")) {
+        notebooks = notebooks.filter(item => item.id !== id);
+        localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
+        location.reload();
+    }
 }
 
 function saveNotebookContent(id) {
@@ -214,6 +284,7 @@ function loadNotebooksToDashboard() {
     section.classList.remove('hidden');
     list.innerHTML = '';
 
+    notebooks.notebooks = notebooks || [];
     notebooks.forEach(nb => {
         const card = document.createElement('div');
         card.className = "bg-white border border-slate-200 rounded-xl md:rounded-2xl p-2.5 hover:shadow-md transition-all cursor-pointer flex flex-col justify-between";
@@ -234,7 +305,6 @@ function loadNotebooksToDashboard() {
 
 loadNotebooksToDashboard();
 
-// Service Worker für PWA-Installierbarkeit registrieren
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js')
