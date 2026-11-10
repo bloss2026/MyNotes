@@ -1,314 +1,987 @@
-lucide.createIcons();
 
-const toggleMenuBtn = document.getElementById('toggleMenuBtn');
-const sidebar = document.getElementById('sidebar');
-const sidebarBackdrop = document.getElementById('sidebarBackdrop');
-const newBtn = document.getElementById('newBtn');
-const newDropdown = document.getElementById('newDropdown');
-const notebookModal = document.getElementById('notebookModal');
+(() => {
+"use strict";
+
+const $ = id => document.getElementById(id);
+const STORAGE_KEY = "mynotes_notebooks";
+
+let notebooks = [];
+let selectedTemplate = { name: "Gepunktet" };
+let currentNotebookId = null;
+let editorMode = "text";
+let history = [];
+let historyIndex = -1;
+let historyTimer = null;
+
+const standardTemplatesData = [
+  { name: "Leer" },
+  { name: "Gepunktet" },
+  { name: "Liniert" },
+  { name: "Kariert" }
+];
+
+function safeLoad() {
+  try {
+    const parsed = JSON.parse(
+      localStorage.getItem(STORAGE_KEY) || "[]"
+    );
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.error("Ladefehler:", err);
+    return [];
+  }
+}
+
+function persist() {
+  try {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(notebooks)
+    );
+    return true;
+  } catch (err) {
+    console.error("Speicherfehler:", err);
+    alert("Speichern nicht möglich. Gerätespeicher prüfen.");
+    return false;
+  }
+}
+
+function escapeHTML(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  }[ch]));
+}
+
+function refreshIcons(root = document) {
+  if (window.lucide &&
+      typeof window.lucide.createIcons === "function") {
+    try {
+      window.lucide.createIcons();
+    } catch (error) {
+      console.warn("Icons konnten nicht geladen werden:", error);
+    }
+  }
+}
+
+/* INITIALISIERUNG */
+
+function init() {
+  notebooks = safeLoad();
+
+  refreshIcons();
+
+  $("toggleMenuBtn")?.addEventListener(
+    "click",
+    toggleMobileSidebar
+  );
+
+  $("sidebarBackdrop")?.addEventListener(
+    "click",
+    toggleMobileSidebar
+  );
+
+  $("newBtn")?.addEventListener("click", event => {
+    event.stopPropagation();
+    $("newDropdown")?.classList.toggle("hidden");
+  });
+
+  document.addEventListener("click", handleDocumentClick);
+
+  $("notebookModal")?.addEventListener("click", event => {
+    if (event.target === $("notebookModal")) {
+      closeNotebookModal();
+    }
+  });
+
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape") {
+      closeNotebookModal();
+      closeMenu();
+      $("newDropdown")?.classList.add("hidden");
+    }
+
+    if (
+      (event.ctrlKey || event.metaKey) &&
+      event.key.toLowerCase() === "s" &&
+      currentNotebookId !== null
+    ) {
+      event.preventDefault();
+      saveNotebookContent(currentNotebookId);
+    }
+  });
+
+  loadNotebooksToDashboard();
+}
+
+function handleDocumentClick(event) {
+  const dropdown = $("newDropdown");
+  const newButton = $("newBtn");
+
+  if (
+    dropdown &&
+    !dropdown.contains(event.target) &&
+    !newButton?.contains(event.target)
+  ) {
+    dropdown.classList.add("hidden");
+  }
+
+  const menu = $("notebookOptionsMenu");
+  const trigger = $("menuTriggerBtn");
+
+  if (
+    menu &&
+    !menu.contains(event.target) &&
+    !trigger?.contains(event.target)
+  ) {
+    menu.classList.add("hidden");
+  }
+}
 
 function toggleMobileSidebar() {
-    sidebar.classList.toggle('-translate-x-full');
-    sidebarBackdrop.classList.toggle('hidden');
+  $("sidebar")?.classList.toggle("-translate-x-full");
+  $("sidebarBackdrop")?.classList.toggle("hidden");
 }
 
-if (toggleMenuBtn) toggleMenuBtn.addEventListener('click', toggleMobileSidebar);
-if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', toggleMobileSidebar);
-
-if (newBtn) {
-    newBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        newDropdown.classList.toggle('hidden');
-    });
-}
-
-// Globaler Klick-Handler zum Schließen von Dropdowns
-window.addEventListener('click', (e) => {
-    if (newDropdown && !newDropdown.classList.contains('hidden')) {
-        newDropdown.classList.add('hidden');
-    }
-    
-    // Schließe das Notizbuch-Menü, wenn außerhalb geklickt wird
-    const nbMenu = document.getElementById('notebookOptionsMenu');
-    const menuBtn = document.getElementById('menuTriggerBtn');
-    if (nbMenu && menuBtn && !nbMenu.contains(e.target) && !menuBtn.contains(e.target)) {
-        nbMenu.classList.add('hidden');
-    }
-});
+/* NOTIZBUCH-MODAL */
 
 function openNotebookModal() {
-    if (newDropdown) newDropdown.classList.add('hidden');
-    notebookModal.classList.remove('hidden');
-    renderTemplateOptions('gelb');
+  $("newDropdown")?.classList.add("hidden");
+
+  const modal = $("notebookModal");
+  if (!modal) return;
+
+  modal.classList.remove("hidden");
+
+  renderTemplateOptions(
+    $("colorSelect")?.value || "gelb"
+  );
 }
 
 function closeNotebookModal() {
-    notebookModal.classList.add('hidden');
+  $("notebookModal")?.classList.add("hidden");
 }
 
-let selectedTemplate = { name: "Gepunktet" };
-let notebooks = JSON.parse(localStorage.getItem('mynotes_notebooks')) || [];
-
-const standardTemplatesData = [
-    { name: "Leer" }, { name: "Gepunktet" }, { name: "Liniert" }, { name: "Kariert" }
-];
-
 function renderTemplateOptions(colorTheme) {
-    const stdContainer = document.getElementById('standardTemplates');
-    if (!stdContainer) return;
-    stdContainer.innerHTML = '';
+  const container = $("standardTemplates");
+  if (!container) return;
 
-    let bgClass = "bg-amber-50";
-    if (colorTheme === 'weiss') bgClass = "bg-white";
+  container.innerHTML = "";
 
-    standardTemplatesData.forEach(tpl => {
-        const isSelected = selectedTemplate.name === tpl.name;
-        const card = document.createElement('div');
-        card.className = `cursor-pointer p-2 rounded-xl border text-center transition-all ${isSelected ? 'border-blue-600 ring-2 ring-blue-500/20 bg-blue-50/20' : 'border-slate-100 hover:border-slate-300'}`;
-        card.innerHTML = `
-            <div class="h-20 ${bgClass} border border-slate-200 rounded-lg shadow-sm mb-1 flex items-center justify-center">
-                <span class="text-[9px] text-slate-400">${tpl.name}</span>
-            </div>
-            <span class="text-xs font-medium text-slate-700">${tpl.name}</span>
-        `;
-        card.onclick = () => {
-            selectedTemplate = tpl;
-            renderTemplateOptions(colorTheme);
-        };
-        stdContainer.appendChild(card);
+  const paperClass =
+    colorTheme === "weiss"
+      ? "bg-white"
+      : "bg-amber-50";
+
+  standardTemplatesData.forEach(template => {
+    const selected =
+      selectedTemplate.name === template.name;
+
+    const card = document.createElement("button");
+
+    card.type = "button";
+
+    card.className =
+      `cursor-pointer p-2 rounded-xl border text-center
+      transition-all ${
+        selected
+          ? "border-blue-600 ring-2 ring-blue-500/20 bg-blue-50/20"
+          : "border-slate-100 hover:border-slate-300"
+      }`;
+
+    card.setAttribute("aria-pressed", String(selected));
+
+    card.innerHTML = `
+      <div class="h-20 ${paperClass}
+        border border-slate-200 rounded-lg shadow-sm
+        mb-1 flex items-center justify-center">
+        <span class="text-[9px] text-slate-400">
+          ${escapeHTML(template.name)}
+        </span>
+      </div>
+
+      <span class="text-xs font-medium text-slate-700">
+        ${escapeHTML(template.name)}
+      </span>
+    `;
+
+    card.addEventListener("click", () => {
+      selectedTemplate = template;
+      renderTemplateOptions(colorTheme);
     });
+
+    container.appendChild(card);
+  });
 }
 
 function updatePaperColorFilter() {
-    const val = document.getElementById('colorSelect').value;
-    renderTemplateOptions(val);
+  renderTemplateOptions(
+    $("colorSelect")?.value || "gelb"
+  );
 }
+
+/* NOTIZBUCH ERSTELLEN */
 
 function createNotebook() {
-    const titleInput = document.getElementById('nbTitle');
-    const title = titleInput ? titleInput.value : 'Unbenanntes Notizbuch';
-    const newNb = {
-        id: Date.now(),
-        title: title,
-        template: selectedTemplate.name,
-        date: new Date().toLocaleDateString('de-DE'),
-        content: ''
-    };
+  const title =
+    ($("nbTitle")?.value ||
+      "Unbenanntes Notizbuch").trim() ||
+    "Unbenanntes Notizbuch";
 
-    notebooks.push(newNb);
-    localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
+  const notebook = {
+    id: Date.now(),
+    title: title,
+    template: selectedTemplate.name,
+    date: new Date().toLocaleDateString("de-DE"),
+    content: ""
+  };
 
-    closeNotebookModal();
-    loadNotebooksToDashboard();
+  notebooks.push(notebook);
+
+  if (!persist()) return;
+
+  closeNotebookModal();
+  loadNotebooksToDashboard();
+  openNotebook(notebook.id);
 }
 
-// Öffnet das Notizbuch im Editor
-function openNotebook(id) {
-    const nb = notebooks.find(item => item.id === id);
-    if (!nb) return;
+/* DASHBOARD */
 
-    const mobileHeader = document.querySelector('.md\\:hidden.bg-white');
-    if (mobileHeader) mobileHeader.classList.add('hidden');
+function loadNotebooksToDashboard() {
+  const section = $("userNotebooksSection");
+  const list = $("notebooksList");
 
-    let paperPatternClass = "";
-    if (nb.template === "Gepunktet") paperPatternClass = "paper-dotted";
-    if (nb.template === "Liniert") paperPatternClass = "paper-lined";
-    if (nb.template === "Kariert") paperPatternClass = "paper-grid";
+  if (!section || !list) return;
 
-    const mainContainer = document.querySelector('main');
-    mainContainer.innerHTML = `
-        <div class="flex flex-col h-full w-full bg-slate-300 overflow-hidden relative">
-            
-            <!-- 1. Obere Blaue Hauptleiste -->
-            <header class="h-12 bg-[#2b59a2] text-white px-3 flex items-center justify-between shrink-0 z-30 shadow-sm select-none">
-                <div class="flex items-center gap-2 md:gap-3">
-                    <button onclick="location.reload()" class="p-1.5 hover:bg-white/10 rounded-lg transition-colors" title="Zurück">
-                        <i data-lucide="home" class="w-5 h-5"></i>
-                    </button>
-                    <button class="p-1.5 hover:bg-white/10 rounded-lg">
-                        <i data-lucide="panel-left" class="w-5 h-5"></i>
-                    </button>
-                    <button class="p-1.5 hover:bg-white/10 rounded-lg text-amber-300">
-                        <i data-lucide="sparkles" class="w-5 h-5"></i>
-                    </button>
-                </div>
+  if (notebooks.length === 0) {
+    section.classList.add("hidden");
+    return;
+  }
 
-                <div class="flex items-center gap-1 md:gap-2">
-                    <button class="p-1.5 hover:bg-white/10 rounded-lg"><i data-lucide="lasso" class="w-5 h-5"></i></button>
-                    <button class="p-1.5 bg-white/20 rounded-xl"><i data-lucide="pen-tool" class="w-5 h-5"></i></button>
-                    <button class="p-1.5 hover:bg-white/10 rounded-lg"><i data-lucide="eraser" class="w-5 h-5"></i></button>
-                    <button class="p-1.5 hover:bg-white/10 rounded-lg"><i data-lucide="type" class="w-5 h-5"></i></button>
-                    <button class="p-1.5 hover:bg-white/10 rounded-lg"><i data-lucide="mic" class="w-5 h-5"></i></button>
-                </div>
+  section.classList.remove("hidden");
+  list.innerHTML = "";
 
-                <!-- Rechte Aktionen & Drei-Punkte-Menü -->
-                <div class="flex items-center gap-1 md:gap-2 relative">
-                    <button onclick="saveNotebookContent(${nb.id})" class="p-1.5 hover:bg-white/10 rounded-lg" title="Speichern"><i data-lucide="file-plus" class="w-5 h-5"></i></button>
-                    <button class="p-1.5 hover:bg-white/10 rounded-lg"><i data-lucide="upload" class="w-5 h-5"></i></button>
-                    
-                    <!-- Trigger Button mit direktem onclick und ontouchend -->
-                    <button id="menuTriggerBtn" onclick="toggleNotebookMenu(event)" ontouchend="toggleNotebookMenu(event)" class="p-1.5 hover:bg-white/10 rounded-lg relative">
-                        <i data-lucide="more-horizontal" class="w-5 h-5"></i>
-                    </button>
+  notebooks.forEach(nb => {
+    const card = document.createElement("button");
 
-                    <!-- Das Pop-up-Menü (Standardmäßig display:none via 'hidden') -->
-                    <div id="notebookOptionsMenu" class="hidden absolute right-0 top-12 w-64 bg-white text-slate-800 rounded-2xl shadow-2xl border border-slate-200 py-2 z-50 select-none">
-                        <div class="px-4 py-2 border-b border-slate-100 font-bold text-xs truncate text-slate-700">
-                            ${nb.title}
-                        </div>
-                        <button onclick="saveNotebookContent(${nb.id}); closeMenu();" class="w-full text-left px-4 py-2.5 text-xs hover:bg-slate-100 flex items-center gap-2 text-slate-700">
-                            <i data-lucide="save" class="w-4 h-4 text-blue-600"></i> Notizen speichern
-                        </button>
-                        <button onclick="renameNotebookPrompt(${nb.id})" class="w-full text-left px-4 py-2.5 text-xs hover:bg-slate-100 flex items-center gap-2 text-slate-700">
-                            <i data-lucide="edit-3" class="w-4 h-4 text-slate-500"></i> Umbenennen
-                        </button>
-                        <div class="border-t border-slate-100 my-1"></div>
-                        <button onclick="deleteNotebook(${nb.id})" class="w-full text-left px-4 py-2.5 text-xs hover:bg-red-50 flex items-center gap-2 text-red-600">
-                            <i data-lucide="trash-2" class="w-4 h-4"></i> In den Papierkorb
-                        </button>
-                    </div>
-                </div>
-            </header>
+    card.type = "button";
 
-            <!-- 2. Weiße Schwebende Werkzeugleiste (Floating Bar) -->
-            <div class="py-1.5 px-2 flex justify-center z-20 shrink-0 bg-slate-300/50">
-                <div class="bg-white/95 backdrop-blur-md rounded-2xl shadow-md border border-slate-200/80 px-3 py-1.5 flex items-center gap-2 md:gap-4 overflow-x-auto max-w-full">
-                    <div class="flex items-center gap-1 border-r border-slate-200 pr-2">
-                        <button class="p-1 text-slate-400 hover:text-slate-700"><i data-lucide="undo-2" class="w-4 h-4"></i></button>
-                        <button class="p-1 text-slate-400 hover:text-slate-700"><i data-lucide="redo-2" class="w-4 h-4"></i></button>
-                    </div>
+    card.className =
+      "text-left bg-white border border-slate-200 " +
+      "rounded-xl md:rounded-2xl p-2.5 " +
+      "hover:shadow-md transition-all cursor-pointer " +
+      "flex flex-col justify-between";
 
-                    <div class="flex items-center gap-1 md:gap-2">
-                        <button class="p-1.5 bg-blue-50 text-blue-600 rounded-xl font-bold"><i data-lucide="pen-tool" class="w-4 h-4"></i></button>
-                        <button class="p-1.5 text-slate-600 hover:bg-slate-100 rounded-xl"><i data-lucide="pencil" class="w-4 h-4"></i></button>
-                        <button class="p-1.5 text-slate-600 hover:bg-slate-100 rounded-xl"><i data-lucide="highlighter" class="w-4 h-4"></i></button>
-                        <button class="p-1.5 text-slate-600 hover:bg-slate-100 rounded-xl"><i data-lucide="sticky-note" class="w-4 h-4"></i></button>
-                        <button class="p-1.5 text-slate-600 hover:bg-slate-100 rounded-xl"><i data-lucide="shapes" class="w-4 h-4"></i></button>
-                    </div>
+    card.innerHTML = `
+      <div class="h-24 md:h-32 bg-amber-50
+        border border-amber-200/60 rounded-lg
+        md:rounded-xl shadow-sm mb-2 p-2
+        flex flex-col justify-between">
 
-                    <div class="h-4 w-px bg-slate-200"></div>
+        <span class="text-[8px] md:text-[10px]
+          font-bold text-amber-900/60 uppercase">
+          MyNotes
+        </span>
 
-                    <div class="flex items-center gap-2">
-                        <button class="p-1 text-slate-600 hover:bg-slate-100 rounded"><i data-lucide="sliders" class="w-4 h-4"></i></button>
-                        <button class="w-5 h-5 rounded-full bg-black ring-2 ring-slate-300"></button>
-                        <button class="w-5 h-5 rounded-full bg-blue-500"></button>
-                        <button class="w-5 h-5 rounded-full bg-white border border-slate-300"></button>
-                    </div>
-                </div>
-            </div>
+        <span class="text-xs font-semibold
+          text-slate-700 truncate">
+          ${escapeHTML(nb.title)}
+        </span>
+      </div>
 
-            <!-- 3. Haupt-Arbeitsbereich -->
-            <div class="flex-1 overflow-y-auto p-3 md:p-6 flex justify-center items-start">
-                <div class="w-full max-w-xl md:max-w-2xl bg-amber-50/60 min-h-[75vh] md:min-h-[85vh] shadow-2xl rounded-sm p-6 md:p-12 border border-slate-300 relative transition-all ${paperPatternClass}">
-                    <textarea id="notebookContent" class="w-full h-full min-h-[70vh] resize-none bg-transparent border-none focus:outline-none text-slate-800 leading-relaxed font-sans text-sm md:text-base z-10" placeholder="Schreibe hier deine Notizen...">${nb.content || ''}</textarea>
-                </div>
-            </div>
+      <div>
+        <h4 class="text-xs font-bold
+          text-slate-800 truncate">
+          ${escapeHTML(nb.title)}
+        </h4>
 
-            <!-- 4. Seitenzahl-Pille unten links -->
-            <div class="absolute bottom-3 left-3 z-20 bg-white/90 backdrop-blur border border-slate-200/80 px-2.5 py-0.5 rounded-full text-[11px] font-medium text-slate-600 shadow-sm">
-                1 von 1
-            </div>
-
-        </div>
+        <p class="text-[9px] md:text-[10px]
+          text-slate-400">
+          ${escapeHTML(nb.template || "Leer")}
+        </p>
+      </div>
     `;
-    lucide.createIcons();
+
+    card.addEventListener("click", () => {
+      openNotebook(nb.id);
+    });
+
+    list.appendChild(card);
+  });
 }
 
-// Menü ein-/ausschalten per Touch & Klick
+/* EDITOR ÖFFNEN */
+
+function openNotebook(id) {
+  const nb = notebooks.find(
+    item => String(item.id) === String(id)
+  );
+
+  if (!nb) return;
+
+  currentNotebookId = nb.id;
+  editorMode = "text";
+
+  history = [String(nb.content || "")];
+  historyIndex = 0;
+
+  document.querySelector(
+    ".md\\:hidden.bg-white"
+  )?.classList.add("hidden");
+
+  const pattern = {
+    "Gepunktet": "paper-dotted",
+    "Liniert": "paper-lined",
+    "Kariert": "paper-grid"
+  }[nb.template] || "";
+
+  const main = document.querySelector("main");
+  if (!main) return;
+
+  main.innerHTML = `
+    <div class="flex flex-col h-full w-full
+      bg-slate-300 overflow-hidden relative">
+
+      <header class="h-12 bg-[#2b59a2]
+        text-white px-3 flex items-center
+        justify-between shrink-0 z-30 shadow-sm">
+
+        <div class="flex items-center gap-2">
+
+          <button data-action="home"
+            class="p-1.5 hover:bg-white/10 rounded-lg"
+            title="Zurück">
+            <i data-lucide="home" class="w-5 h-5"></i>
+          </button>
+
+          <button data-action="toggle-sidebar"
+            class="p-1.5 hover:bg-white/10 rounded-lg"
+            title="Navigation">
+            <i data-lucide="panel-left" class="w-5 h-5"></i>
+          </button>
+
+          <span class="text-xs font-semibold truncate
+            max-w-[100px] md:max-w-xs">
+            ${escapeHTML(nb.title)}
+          </span>
+        </div>
+
+        <div class="flex items-center gap-1">
+
+          <button data-tool="lasso"
+            class="p-1.5 hover:bg-white/10 rounded-lg"
+            title="Auswahl">
+            <i data-lucide="mouse-pointer-2"
+              class="w-5 h-5"></i>
+          </button>
+
+          <button data-tool="pen"
+            class="p-1.5 hover:bg-white/10 rounded-lg"
+            title="Schreibmodus">
+            <i data-lucide="pen-tool"
+              class="w-5 h-5"></i>
+          </button>
+
+          <button data-tool="eraser"
+            class="p-1.5 hover:bg-white/10 rounded-lg"
+            title="Radierer">
+            <i data-lucide="eraser"
+              class="w-5 h-5"></i>
+          </button>
+
+          <button data-tool="text"
+            class="p-1.5 hover:bg-white/10 rounded-lg"
+            title="Text bearbeiten">
+            <i data-lucide="type"
+              class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <div class="flex items-center gap-1 relative">
+
+          <button data-action="save"
+            class="p-1.5 hover:bg-white/10 rounded-lg"
+            title="Speichern">
+            <i data-lucide="save" class="w-5 h-5"></i>
+          </button>
+
+          <button data-action="export"
+            class="p-1.5 hover:bg-white/10 rounded-lg"
+            title="Exportieren">
+            <i data-lucide="download"
+              class="w-5 h-5"></i>
+          </button>
+
+          <button id="menuTriggerBtn"
+            data-action="toggle-menu"
+            class="p-1.5 hover:bg-white/10 rounded-lg"
+            title="Weitere Optionen">
+            <i data-lucide="more-horizontal"
+              class="w-5 h-5"></i>
+          </button>
+
+          <div id="notebookOptionsMenu"
+            class="hidden absolute right-0 top-12
+            w-64 bg-white text-slate-800
+            rounded-2xl shadow-2xl border
+            border-slate-200 py-2 z-50">
+
+            <div class="px-4 py-2 border-b
+              border-slate-100 font-bold text-xs">
+              ${escapeHTML(nb.title)}
+            </div>
+
+            <button data-action="save"
+              class="menu-item">
+              <i data-lucide="save"></i>
+              Notizen speichern
+            </button>
+
+            <button data-action="rename"
+              class="menu-item">
+              <i data-lucide="edit-3"></i>
+              Umbenennen
+            </button>
+
+            <button data-action="import"
+              class="menu-item">
+              <i data-lucide="file-up"></i>
+              Textdatei importieren
+            </button>
+
+            <div class="border-t border-slate-100 my-1"></div>
+
+            <button data-action="delete"
+              class="menu-item text-red-600">
+              <i data-lucide="trash-2"></i>
+              In den Papierkorb
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div class="py-1.5 px-2 flex justify-center
+        z-20 shrink-0 bg-slate-300/50">
+
+        <div class="bg-white/95 rounded-2xl
+          shadow-md border border-slate-200
+          px-3 py-1.5 flex items-center gap-2
+          overflow-x-auto max-w-full">
+
+          <div class="flex items-center gap-1
+            border-r border-slate-200 pr-2">
+
+            <button data-action="undo"
+              class="tool-button" title="Rückgängig">
+              <i data-lucide="undo-2"></i>
+            </button>
+
+            <button data-action="redo"
+              class="tool-button" title="Wiederholen">
+              <i data-lucide="redo-2"></i>
+            </button>
+          </div>
+
+          <div class="flex items-center gap-1">
+
+            <button data-tool="pen"
+              class="tool-button" title="Schreiben">
+              <i data-lucide="pen-tool"></i>
+            </button>
+
+            <button data-tool="text"
+              class="tool-button" title="Text">
+              <i data-lucide="type"></i>
+            </button>
+
+            <button data-action="highlight"
+              class="tool-button" title="Hervorheben">
+              <i data-lucide="highlighter"></i>
+            </button>
+
+            <button data-action="sticky"
+              class="tool-button" title="Textnotiz">
+              <i data-lucide="sticky-note"></i>
+            </button>
+
+            <button data-action="shape"
+              class="tool-button" title="Form einfügen">
+              <i data-lucide="shapes"></i>
+            </button>
+          </div>
+
+          <div class="h-4 w-px bg-slate-200"></div>
+
+          <div class="flex items-center gap-2">
+
+            <button data-action="font-size"
+              class="tool-button font-bold"
+              title="Schriftgröße">
+              A±
+            </button>
+
+            <button data-color="#111827"
+              class="w-5 h-5 rounded-full bg-black"
+              title="Schwarz"></button>
+
+            <button data-color="#2563eb"
+              class="w-5 h-5 rounded-full bg-blue-600"
+              title="Blau"></button>
+
+            <button data-color="#dc2626"
+              class="w-5 h-5 rounded-full bg-red-600"
+              title="Rot"></button>
+          </div>
+        </div>
+      </div>
+
+      <div id="editorStatus"
+        class="px-3 text-center text-[10px]
+        text-slate-600 shrink-0"
+        aria-live="polite">
+        Textmodus – Notizen werden lokal gespeichert.
+      </div>
+
+      <div class="flex-1 overflow-y-auto
+        p-3 md:p-6 flex justify-center items-start">
+
+        <div class="w-full max-w-xl md:max-w-2xl
+          bg-amber-50/60 min-h-[75vh]
+          md:min-h-[85vh] shadow-2xl rounded-sm
+          p-6 md:p-12 border border-slate-300
+          relative ${pattern}">
+
+          <textarea id="notebookContent"
+            spellcheck="true"
+            class="w-full h-full min-h-[70vh]
+            resize-none bg-transparent border-none
+            focus:outline-none text-slate-800
+            leading-relaxed font-sans text-sm
+            md:text-base"
+            placeholder="Schreibe hier deine Notizen...">${escapeHTML(nb.content || "")}</textarea>
+        </div>
+      </div>
+
+      <div class="absolute bottom-3 left-3 z-20
+        bg-white/90 border border-slate-200
+        px-2.5 py-0.5 rounded-full
+        text-[11px] text-slate-600 shadow-sm">
+        Seite 1 von 1
+      </div>
+
+      <input id="importFileInput"
+        type="file"
+        accept=".txt,.md,.csv,text/plain"
+        class="hidden">
+    </div>
+  `;
+
+  $("notebookContent")?.addEventListener(
+    "input",
+    scheduleHistory
+  );
+
+  $("importFileInput")?.addEventListener(
+    "change",
+    importTextFile
+  );
+
+  refreshIcons(main);
+}
+
+/* EDITOR STATUS */
+
+function status(message) {
+  const element = $("editorStatus");
+  if (element) element.textContent = message;
+}
+
+/* RÜCKGÄNGIG / WIEDERHOLEN */
+
+function scheduleHistory() {
+  clearTimeout(historyTimer);
+  historyTimer = setTimeout(pushHistory, 350);
+}
+
+function pushHistory() {
+  const value = $("notebookContent")?.value ?? "";
+
+  if (history[historyIndex] === value) return;
+
+  history = history.slice(0, historyIndex + 1);
+  history.push(value);
+
+  if (history.length > 80) {
+    history.shift();
+  }
+
+  historyIndex = history.length - 1;
+}
+
+function restoreHistory(index) {
+  pushHistory();
+
+  const next = Math.max(
+    0,
+    Math.min(history.length - 1, index)
+  );
+
+  historyIndex = next;
+
+  const area = $("notebookContent");
+
+  if (area) {
+    area.value = history[historyIndex] || "";
+  }
+
+  status("Änderung wiederhergestellt.");
+}
+
+/* TEXTBEARBEITUNG */
+
+function wrapSelection(before, after = before) {
+  const area = $("notebookContent");
+  if (!area) return;
+
+  const start = area.selectionStart;
+  const end = area.selectionEnd;
+
+  if (start === end) {
+    status("Bitte zuerst Text markieren.");
+    area.focus();
+    return;
+  }
+
+  const selected = area.value.slice(start, end);
+
+  area.setRangeText(
+    before + selected + after,
+    start,
+    end,
+    "select"
+  );
+
+  area.dispatchEvent(
+    new Event("input", { bubbles: true })
+  );
+
+  area.focus();
+}
+
+function insertAtCursor(text) {
+  const area = $("notebookContent");
+  if (!area) return;
+
+  const start = area.selectionStart;
+  const end = area.selectionEnd;
+
+  area.setRangeText(
+    text,
+    start,
+    end,
+    "end"
+  );
+
+  area.dispatchEvent(
+    new Event("input", { bubbles: true })
+  );
+
+  area.focus();
+}
+
+/* WERKZEUGE */
+
+function setTool(tool) {
+  editorMode = tool;
+
+  document.querySelectorAll("[data-tool]").forEach(btn => {
+    const active = btn.dataset.tool === tool;
+
+    btn.classList.toggle("bg-blue-100", active);
+    btn.classList.toggle("text-blue-700", active);
+  });
+
+  const messages = {
+    pen: "Schreibmodus ausgewählt.",
+    text: "Textmodus ausgewählt.",
+    eraser: "Radierer: Markiere Text und entferne die Hervorhebungszeichen.",
+    lasso: "Auswahlmodus: Markiere Text mit Finger oder Cursor."
+  };
+
+  status(messages[tool] || "Werkzeug ausgewählt.");
+
+  $("notebookContent")?.focus();
+}
+
+/* SPEICHERN */
+
+function saveNotebookContent(id = currentNotebookId) {
+  const area = $("notebookContent");
+
+  const nb = notebooks.find(
+    item => String(item.id) === String(id)
+  );
+
+  if (!nb || !area) return;
+
+  nb.content = area.value;
+
+  if (persist()) {
+    status("Notizen erfolgreich gespeichert.");
+  }
+}
+
+/* MENÜ */
+
 function toggleNotebookMenu(event) {
-    if (event) {
-        event.stopPropagation();
-        event.preventDefault();
-    }
-    const menu = document.getElementById('notebookOptionsMenu');
-    if (menu) {
-        menu.classList.toggle('hidden');
-    }
+  event?.stopPropagation();
+
+  $("notebookOptionsMenu")?.classList.toggle("hidden");
 }
 
 function closeMenu() {
-    const menu = document.getElementById('notebookOptionsMenu');
-    if (menu) menu.classList.add('hidden');
+  $("notebookOptionsMenu")?.classList.add("hidden");
 }
 
-// Notizbuch umbenennen
-function renameNotebookPrompt(id) {
-    closeMenu();
-    const nb = notebooks.find(item => item.id === id);
-    if (!nb) return;
-    const newTitle = prompt("Neuer Name für das Notizbuch:", nb.title);
-    if (newTitle && newTitle.trim() !== "") {
-        notebooks = notebooks.map(item => {
-            if (item.id === id) item.title = newTitle.trim();
-            return item;
-        });
-        localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
-        openNotebook(id);
+/* UMBENENNEN */
+
+function renameNotebookPrompt(id = currentNotebookId) {
+  closeMenu();
+
+  const nb = notebooks.find(
+    item => String(item.id) === String(id)
+  );
+
+  if (!nb) return;
+
+  const newTitle = prompt(
+    "Neuer Name für das Notizbuch:",
+    nb.title
+  );
+
+  if (newTitle && newTitle.trim()) {
+    nb.title = newTitle.trim();
+
+    persist();
+    openNotebook(nb.id);
+  }
+}
+
+/* LÖSCHEN */
+
+function deleteNotebook(id = currentNotebookId) {
+  closeMenu();
+
+  if (!confirm(
+    "Möchtest du dieses Notizbuch wirklich in den Papierkorb verschieben?"
+  )) return;
+
+  notebooks = notebooks.filter(
+    item => String(item.id) !== String(id)
+  );
+
+  persist();
+
+  currentNotebookId = null;
+  location.reload();
+}
+
+/* EXPORTIEREN */
+
+function exportNotebook() {
+  const nb = notebooks.find(
+    item => String(item.id) === String(currentNotebookId)
+  );
+
+  const content = $("notebookContent")?.value ?? "";
+
+  if (!nb) return;
+
+  nb.content = content;
+  persist();
+
+  const blob = new Blob(
+    [content],
+    { type: "text/plain;charset=utf-8" }
+  );
+
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+
+  link.download =
+    (nb.title || "Notizen")
+      .replace(/[\\/:*?"<>|]/g, "_") + ".txt";
+
+  link.click();
+
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  status("Textdatei wurde exportiert.");
+}
+
+/* IMPORTIEREN */
+
+function importTextFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+
+  reader.onload = () => {
+    const area = $("notebookContent");
+
+    if (area) {
+      area.value = String(reader.result || "");
+      pushHistory();
+      status("Datei importiert. Bitte speichern.");
     }
+  };
+
+  reader.onerror = () => {
+    status("Datei konnte nicht gelesen werden.");
+  };
+
+  reader.readAsText(file);
+  event.target.value = "";
 }
 
-// Notizbuch löschen
-function deleteNotebook(id) {
-    closeMenu();
-    if (confirm("Möchtest du dieses Notizbuch wirklich in den Papierkorb verschieben?")) {
-        notebooks = notebooks.filter(item => item.id !== id);
-        localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
-        location.reload();
+/* BUTTON-AKTIONEN */
+
+function handleEditorAction(action) {
+  switch (action) {
+
+    case "home":
+      saveNotebookContent();
+      location.reload();
+      break;
+
+    case "toggle-sidebar":
+      status("Zurück zum Dashboard über die Home-Schaltfläche.");
+      break;
+
+    case "toggle-menu":
+      toggleNotebookMenu();
+      break;
+
+    case "save":
+      saveNotebookContent();
+      closeMenu();
+      break;
+
+    case "rename":
+      renameNotebookPrompt();
+      break;
+
+    case "delete":
+      deleteNotebook();
+      break;
+
+    case "undo":
+      restoreHistory(historyIndex - 1);
+      break;
+
+    case "redo":
+      restoreHistory(historyIndex + 1);
+      break;
+
+    case "highlight":
+      wrapSelection("==");
+      status("Textmarkierung eingefügt.");
+      break;
+
+    case "sticky":
+      insertAtCursor("\n[Notiz: ] ");
+      status("Textnotiz eingefügt.");
+      break;
+
+    case "shape":
+      insertAtCursor("\n[ □ ] ");
+      status("Form-Platzhalter eingefügt.");
+      break;
+
+    case "font-size": {
+      const area = $("notebookContent");
+
+      if (area) {
+        const current =
+          parseFloat(getComputedStyle(area).fontSize) || 16;
+
+        area.style.fontSize =
+          (current >= 22 ? 14 : current + 2) + "px";
+
+        status("Schriftgröße angepasst.");
+      }
+      break;
     }
+
+    case "export":
+      exportNotebook();
+      break;
+
+    case "import":
+      closeMenu();
+      $("importFileInput")?.click();
+      break;
+  }
 }
 
-function saveNotebookContent(id) {
-    const contentElement = document.getElementById('notebookContent');
-    if (!contentElement) return;
-    
-    const content = contentElement.value;
-    notebooks = notebooks.map(nb => {
-        if (nb.id === id) nb.content = content;
-        return nb;
-    });
-    localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
-    alert('Notizen erfolgreich gespeichert!');
-}
+/* ZENTRALER BUTTON-HANDLER */
 
-function loadNotebooksToDashboard() {
-    const section = document.getElementById('userNotebooksSection');
-    const list = document.getElementById('notebooksList');
-    
-    if (!section || !list) return;
+document.addEventListener("click", event => {
 
-    if (notebooks.length === 0) {
-        section.classList.add('hidden');
-        return;
+  const actionButton = event.target.closest("[data-action]");
+
+  if (actionButton) {
+    event.preventDefault();
+    handleEditorAction(actionButton.dataset.action);
+    return;
+  }
+
+  const toolButton = event.target.closest("[data-tool]");
+
+  if (toolButton) {
+    event.preventDefault();
+    setTool(toolButton.dataset.tool);
+    return;
+  }
+
+  const colorButton = event.target.closest("[data-color]");
+
+  if (colorButton) {
+    const area = $("notebookContent");
+
+    if (area) {
+      area.style.color = colorButton.dataset.color;
+      area.focus();
+
+      status("Textfarbe geändert.");
     }
+  }
+});
 
-    section.classList.remove('hidden');
-    list.innerHTML = '';
+/* KOMPATIBILITÄT MIT INDEX.HTML */
 
-    notebooks.notebooks = notebooks || [];
-    notebooks.forEach(nb => {
-        const card = document.createElement('div');
-        card.className = "bg-white border border-slate-200 rounded-xl md:rounded-2xl p-2.5 hover:shadow-md transition-all cursor-pointer flex flex-col justify-between";
-        card.onclick = () => openNotebook(nb.id);
-        card.innerHTML = `
-            <div class="h-24 md:h-32 bg-amber-50 border border-amber-200/60 rounded-lg md:rounded-xl shadow-sm mb-2 p-2 flex flex-col justify-between">
-                <span class="text-[8px] md:text-[10px] font-bold text-amber-900/60 uppercase">MyNotes</span>
-                <span class="text-xs font-semibold text-slate-700 truncate">${nb.title}</span>
-            </div>
-            <div>
-                <h4 class="text-xs font-bold text-slate-800 truncate">${nb.title}</h4>
-                <p class="text-[9px] md:text-[10px] text-slate-400">${nb.template}</p>
-            </div>
-        `;
-        list.appendChild(card);
-    });
+window.openNotebookModal = openNotebookModal;
+window.closeNotebookModal = closeNotebookModal;
+window.createNotebook = createNotebook;
+window.updatePaperColorFilter = updatePaperColorFilter;
+window.toggleNotebookMenu = toggleNotebookMenu;
+window.closeMenu = closeMenu;
+window.renameNotebookPrompt = renameNotebookPrompt;
+window.deleteNotebook = deleteNotebook;
+window.saveNotebookContent = saveNotebookContent;
+
+/* START */
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
 }
 
-loadNotebooksToDashboard();
-
-if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js')
-            .then(reg => console.log('Service Worker erfolgreich registriert:', reg))
-            .catch(err => console.log('Service Worker Fehler:', err));
-    });
-}
+})();
