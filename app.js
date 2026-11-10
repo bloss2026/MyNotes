@@ -94,12 +94,12 @@ function createNotebook() {
     loadNotebooksToDashboard();
 }
 
-// Öffnet das Notizbuch und blendet den mobilen App-Header aus
+// Öffnet das Notizbuch im Goodnotes-Layout und blendet den mobilen Header aus
 function openNotebook(id) {
     const nb = notebooks.find(item => item.id === id);
     if (!nb) return;
 
-    // Mobile Header & Sidebar ausblenden für Vollbild-Editor
+    // Mobile Header ausblenden für nahtlose Werkzeugleiste oben
     const mobileHeader = document.querySelector('.md\\:hidden.bg-white');
     if (mobileHeader) mobileHeader.classList.add('hidden');
 
@@ -112,7 +112,7 @@ function openNotebook(id) {
     mainContainer.innerHTML = `
         <div class="flex flex-col h-full w-full bg-slate-300/80 overflow-hidden relative">
             
-            <!-- 1. Obere Blaue Hauptleiste (direkt ganz oben) -->
+            <!-- 1. Obere Blaue Hauptleiste -->
             <header class="h-12 bg-[#2b59a2] text-white px-3 flex items-center justify-between shrink-0 z-20 shadow-sm select-none">
                 <div class="flex items-center gap-2 md:gap-3">
                     <button onclick="location.reload()" class="p-1.5 hover:bg-white/10 rounded-lg transition-colors">
@@ -170,7 +170,7 @@ function openNotebook(id) {
                 </div>
             </div>
 
-            <!-- 3. Haupt-Arbeitsbereich mit flexiblem Papierblatt -->
+            <!-- 3. Haupt-Arbeitsbereich -->
             <div class="flex-1 overflow-y-auto p-4 md:p-8 flex justify-center items-start">
                 <div class="w-full max-w-2xl bg-amber-50/50 min-h-[900px] shadow-xl rounded-sm p-6 md:p-12 border border-slate-300/70 relative transition-all ${paperPatternClass}">
                     <textarea id="notebookContent" class="w-full flex-1 min-h-[800px] resize-none bg-transparent border-none focus:outline-none text-slate-800 leading-relaxed font-sans text-sm md:text-base z-10" placeholder="Schreibe deine Notizen...">${nb.content || ''}</textarea>
@@ -233,3 +233,12 @@ function loadNotebooksToDashboard() {
 }
 
 loadNotebooksToDashboard();
+
+// Service Worker für PWA-Installierbarkeit registrieren
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('Service Worker erfolgreich registriert:', reg))
+            .catch(err => console.log('Service Worker Fehler:', err));
+    });
+}
