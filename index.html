@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="de" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MyNotes - Dokumente</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Manifest PWA -->
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-slate-50 text-slate-800 h-full flex flex-col md:flex-row overflow-hidden font-sans select-none">
+
+    <!-- Mobile Header -->
+    <div class="md:hidden bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shrink-0 z-20">
+        <div class="flex items-center gap-2">
+            <button id="toggleMenuBtn" class="p-2 text-slate-600 hover:bg-slate-100 rounded-xl">
+                <i data-lucide="menu" class="w-6 h-6"></i>
+            </button>
+            <div class="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">MN</div>
+            <span class="font-bold text-slate-900 tracking-tight">MyNotes</span>
+        </div>
+        <button onclick="openNotebookModal()" class="bg-blue-600 text-white p-2 rounded-xl text-xs font-semibold flex items-center gap-1 active:scale-95">
+            <i data-lucide="plus" class="w-4 h-4"></i> Neu
+        </button>
+    </div>
+
+    <!-- Backdrop für Mobile Sidebar -->
+    <div id="sidebarBackdrop" class="hidden fixed inset-0 bg-black/40 z-30 md:hidden backdrop-blur-sm"></div>
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="fixed md:relative inset-y-0 left-0 w-64 bg-slate-100 border-r border-slate-200 flex flex-col justify-between p-4 z-40 transform -translate-x-full md:translate-x-0 transition-transform duration-200 ease-in-out">
+        <div>
+            <div class="hidden md:flex items-center gap-3 px-2 py-3 mb-6">
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold shadow-sm">MN</div>
+                <span class="text-xl font-bold tracking-tight text-slate-900">MyNotes</span>
+            </div>
+
+            <nav class="space-y-1">
+                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-200/70 text-slate-900 font-medium text-sm">
+                    <i data-lucide="folder" class="w-4 h-4 text-blue-600"></i> Dokumente
+                </a>
+                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors">
+                    <i data-lucide="star" class="w-4 h-4"></i> Favoriten
+                </a>
+                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors">
+                    <i data-lucide="share-2" class="w-4 h-4"></i> Geteilt
+                </a>
+                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors justify-between">
+                    <span class="flex items-center gap-3"><i data-lucide="store" class="w-4 h-4"></i> Marketplace</span>
+                    <span class="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">50+</span>
+                </a>
+            </nav>
+        </div>
+
+        <div>
+            <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors">
+                <i data-lucide="trash-2" class="w-4 h-4"></i> Papierkorb
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex flex-col h-full overflow-hidden bg-white">
+        
+        <!-- Desktop Header -->
+        <header class="hidden md:flex h-16 border-b border-slate-100 px-8 items-center justify-between shrink-0">
+            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Dokumente</h1>
+            
+            <div class="flex items-center gap-4 relative">
+                <div class="relative">
+                    <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                    <input type="text" placeholder="Suchen..." class="pl-9 pr-4 py-1.5 bg-slate-100 border-none rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 w-64">
+                </div>
+                <button class="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-colors">
+                    <i data-lucide="settings" class="w-5 h-5"></i>
+                </button>
+                
+                <div class="relative">
+                    <button id="newBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 shadow-sm transition-all active:scale-95">
+                        <span>+ Neu</span>
+                        <i data-lucide="chevron-down" class="w-4 h-4"></i>
+                    </button>
+
+                    <div id="newDropdown" class="hidden absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-100 py-2 z-50">
+                        <div class="px-3 py-1.5 text-xs font-semibold text-slate-400 uppercase tracking-wider">Erstellen</div>
+                        <button onclick="openNotebookModal()" class="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-3">
+                            <i data-lucide="book" class="w-4 h-4 text-blue-600"></i> Notizbuch
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Dashboard Content -->
+        <div class="flex-1 overflow-y-auto p-4 md:p-8">
+            <div class="max-w-6xl mx-auto space-y-6 md:space-y-8">
+                <div>
+                    <h2 class="text-lg md:text-xl font-bold text-slate-900">Keine leere Seite mehr</h2>
+                    <p class="text-xs md:text-sm text-slate-500">Lege mit einer Vorlage los</p>
+                </div>
+
+                <!-- Deine Notizbücher Sektion -->
+                <div id="userNotebooksSection" class="hidden">
+                    <h3 class="text-xs md:text-sm font-semibold text-slate-500 mb-3 md:mb-4">Deine Notizbücher</h3>
+                    <div id="notebooksList" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 md:gap-4"></div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- MODAL: Notizbuch erstellen -->
+    <div id="notebookModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-0 md:p-4">
+        <div class="bg-white w-full md:max-w-4xl h-full md:h-[620px] md:rounded-3xl shadow-2xl border border-slate-100 flex flex-col md:flex-row overflow-hidden">
+            <div class="w-full md:w-72 bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 p-4 md:p-6 flex flex-row md:flex-col justify-between shrink-0">
+                <div class="w-full space-y-4">
+                    <div>
+                        <label class="block text-[10px] md:text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Titel</label>
+                        <input type="text" id="nbTitle" value="Unbenanntes Notizbuch" class="w-full px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs md:text-sm font-medium focus:outline-none">
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex-1 flex flex-col h-full bg-white overflow-hidden">
+                <div class="p-3 md:p-5 border-b border-slate-100 flex items-center gap-2 shrink-0">
+                    <select id="colorSelect" onchange="updatePaperColorFilter()" class="bg-slate-100 text-xs px-3 py-1.5 rounded-xl border-none">
+                        <option value="gelb">Gelbes Papier</option>
+                        <option value="weiss">Weißes Papier</option>
+                    </select>
+                </div>
+
+                <div class="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
+                    <div>
+                        <h4 class="text-[10px] md:text-xs font-bold text-slate-400 uppercase mb-2">Vorlagen</h4>
+                        <div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 md:gap-3" id="standardTemplates"></div>
+                    </div>
+                </div>
+
+                <div class="p-4 border-t border-slate-100 flex items-center justify-end gap-2 shrink-0 bg-white">
+                    <button onclick="closeNotebookModal()" class="px-4 py-2 text-xs md:text-sm font-medium text-slate-600 rounded-xl">Abbrechen</button>
+                    <button onclick="createNotebook()" class="px-4 py-2 text-xs md:text-sm font-medium bg-blue-600 text-white rounded-xl shadow-sm">Notizbuch erstellen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="app.js"></script>
+</body>
+</html>

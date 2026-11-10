@@ -1,0 +1,37 @@
+/* Benutzerdefinierte Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+.transition-all {
+    transition-property: all;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+}
+
+/* Goodnotes Papier-Muster */
+.paper-dotted {
+    background-image: radial-gradient(#94a3b8 1.5px, transparent 1.5px);
+    background-size: 24px 24px;
+}
+
+.paper-lined {
+    background-image: linear-gradient(#e2e8f0 1px, transparent 1px);
+    background-size: 100% 32px;
+}
+
+.paper-grid {
+    background-image: linear-gradient(#e2e8f0 1px, transparent 1px), linear-gradient(90deg, #e2e8f0 1px, transparent 1px);
+    background-size: 24px 24px;
+}
