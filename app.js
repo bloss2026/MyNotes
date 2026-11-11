@@ -2801,16 +2801,37 @@ loadNotebooksToDashboard();
 void initializeSupabaseCloud();
 
 if ('serviceWorker' in navigator) {
-    const hadController = Boolean(navigator.serviceWorker.controller);
+    let hasControlledPage = Boolean(navigator.serviceWorker.controller);
     let isReloadingForUpdate = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (!hadController || isReloadingForUpdate) return;
+        if (!hasControlledPage) {
+            hasControlledPage = true;
+            return;
+        }
+        if (isReloadingForUpdate) return;
         isReloadingForUpdate = true;
         window.location.reload();
     });
+
+    let serviceWorkerRegistration = null;
+    const checkForAppUpdate = () => {
+        if (!navigator.onLine || !serviceWorkerRegistration) return;
+        serviceWorkerRegistration.update().catch(error => {
+            console.warn('Nach App-Updates konnte nicht gesucht werden:', error);
+        });
+    };
+
     window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js')
-            .then(reg => console.log('Service Worker erfolgreich registriert:', reg))
+        navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+            .then(registration => {
+                serviceWorkerRegistration = registration;
+                console.log('Service Worker erfolgreich registriert:', registration);
+                checkForAppUpdate();
+            })
             .catch(err => console.log('Service Worker Fehler:', err));
+    });
+    window.addEventListener('online', checkForAppUpdate);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') checkForAppUpdate();
     });
 }
