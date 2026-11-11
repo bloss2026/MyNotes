@@ -5,7 +5,52 @@ const sidebar = document.getElementById('sidebar');
 const sidebarBackdrop = document.getElementById('sidebarBackdrop');
 const newBtn = document.getElementById('newBtn');
 const newDropdown = document.getElementById('newDropdown');
+const mobileNewBtn = document.getElementById('mobileNewBtn');
+const mobileNewDropdown = document.getElementById('mobileNewDropdown');
 const notebookModal = document.getElementById('notebookModal');
+
+const newMenuItems = `
+    <button class="new-dropdown-item" data-new-action="notebook">
+        <i data-lucide="book"></i><span>Notizbuch</span>
+    </button>
+    <button class="new-dropdown-item" data-new-action="text-document">
+        <i data-lucide="file-text"></i><span>Text Document</span><span class="new-dropdown-badge">BETA</span>
+    </button>
+    <button class="new-dropdown-item" data-new-action="whiteboard">
+        <i data-lucide="grid-3x3"></i><span>Whiteboard</span><span class="new-dropdown-badge new-dropdown-badge-new">NEW</span>
+    </button>
+    <button class="new-dropdown-item" data-new-action="quick-note">
+        <i data-lucide="square-pen"></i><span>Schnellnotiz</span>
+    </button>
+    <button class="new-dropdown-item" data-new-action="image">
+        <i data-lucide="image"></i><span>Bild</span>
+    </button>
+    <button class="new-dropdown-item" data-new-action="folder">
+        <i data-lucide="folder"></i><span>Ordner</span>
+    </button>
+    <div class="new-dropdown-divider"></div>
+    <button class="new-dropdown-item" data-new-action="import">
+        <i data-lucide="download"></i><span>Import</span>
+    </button>
+    <div class="new-dropdown-divider"></div>
+    <button class="new-dropdown-item new-dropdown-connect" data-new-action="Google Drive freischalten">
+        <i data-lucide="hard-drive" class="text-emerald-600"></i><span>Google Drive</span><span class="new-dropdown-badge">BETA</span><span class="connect-label">Freischalten</span>
+    </button>
+    <button class="new-dropdown-item new-dropdown-connect" data-new-action="OneDrive freischalten">
+        <i data-lucide="cloud" class="text-sky-600"></i><span>OneDrive (Persönlich)</span><span class="connect-label">Freischalten</span>
+    </button>
+    <button class="new-dropdown-item new-dropdown-connect" data-new-action="Dropbox freischalten">
+        <i data-lucide="boxes" class="text-blue-600"></i><span>Dropbox</span><span class="connect-label">Freischalten</span>
+    </button>
+    <button class="new-dropdown-item new-dropdown-connect" data-new-action="Box freischalten">
+        <i data-lucide="box" class="text-blue-700"></i><span>Box</span><span class="connect-label">Freischalten</span>
+    </button>
+`;
+
+document.querySelectorAll('.new-dropdown-items').forEach(menu => {
+    menu.innerHTML = newMenuItems;
+});
+lucide.createIcons();
 
 function toggleMobileSidebar() {
     sidebar.classList.toggle('-translate-x-full');
@@ -15,17 +60,82 @@ function toggleMobileSidebar() {
 if (toggleMenuBtn) toggleMenuBtn.addEventListener('click', toggleMobileSidebar);
 if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', toggleMobileSidebar);
 
-if (newBtn) {
-    newBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        newDropdown.classList.toggle('hidden');
+function closeNewMenus() {
+    [newDropdown, mobileNewDropdown].forEach(menu => {
+        if (menu) menu.classList.add('hidden');
     });
+    [newBtn, mobileNewBtn].forEach(button => {
+        if (button) button.setAttribute('aria-expanded', 'false');
+    });
+}
+
+function toggleNewMenu(button, menu) {
+    const shouldOpen = menu.classList.contains('hidden');
+    closeNewMenus();
+    if (shouldOpen) {
+        menu.classList.remove('hidden');
+        button.setAttribute('aria-expanded', 'true');
+    }
+}
+
+function handleNewButtonClick(event, button, menu) {
+    event.stopPropagation();
+    toggleNewMenu(button, menu);
+}
+
+function handleNewButtonDoubleClick(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    createQuickNote();
+}
+
+if (newBtn) {
+    newBtn.addEventListener('click', event => handleNewButtonClick(event, newBtn, newDropdown));
+    newBtn.addEventListener('dblclick', handleNewButtonDoubleClick);
+}
+if (mobileNewBtn) {
+    mobileNewBtn.addEventListener('click', event => handleNewButtonClick(event, mobileNewBtn, mobileNewDropdown));
+    mobileNewBtn.addEventListener('dblclick', handleNewButtonDoubleClick);
+}
+
+document.querySelectorAll('.new-dropdown').forEach(menu => {
+    menu.addEventListener('click', event => {
+        const actionButton = event.target.closest('[data-new-action]');
+        if (actionButton) handleNewAction(actionButton.dataset.newAction);
+        event.stopPropagation();
+    });
+});
+
+function handleNewAction(action) {
+    closeNewMenus();
+    if (action === 'notebook') {
+        openNotebookModal();
+    } else if (action === 'quick-note') {
+        createQuickNote();
+    } else {
+        alert(`${action[0].toUpperCase()}${action.slice(1)} ist in MyNotes noch nicht verfügbar.`);
+    }
+}
+
+function createQuickNote() {
+    closeNewMenus();
+    const quickNote = {
+        id: Date.now(),
+        title: 'Schnellnotiz',
+        template: 'Leer',
+        date: new Date().toLocaleDateString('de-DE'),
+        content: ''
+    };
+    notebooks.push(quickNote);
+    localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
+    loadNotebooksToDashboard();
+    openNotebook(quickNote.id);
 }
 
 // Globaler Klick-Handler zum Schließen von Dropdowns
 window.addEventListener('click', (e) => {
-    if (newDropdown && !newDropdown.classList.contains('hidden')) {
-        newDropdown.classList.add('hidden');
+    if (![newBtn, mobileNewBtn, newDropdown, mobileNewDropdown].some(element => element && element.contains(e.target))) {
+        closeNewMenus();
     }
     
     const nbMenu = document.getElementById('notebookOptionsMenu');
@@ -36,7 +146,7 @@ window.addEventListener('click', (e) => {
 });
 
 function openNotebookModal() {
-    if (newDropdown) newDropdown.classList.add('hidden');
+    closeNewMenus();
     notebookModal.classList.remove('hidden');
     renderTemplateOptions('gelb');
 }
