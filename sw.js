@@ -1,5 +1,5 @@
 
-const CACHE_NAME = "mynotes-v4";
+const CACHE_NAME = "mynotes-v12";
 
 const CORE_ASSETS = [
     "./",
