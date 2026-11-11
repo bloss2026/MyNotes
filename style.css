@@ -757,13 +757,13 @@ textarea:focus-visible {
     display: flex;
     max-width: calc(100vw - 32px);
     align-items: center;
-    gap: 7px;
-    overflow-x: auto;
-    padding: 5px 8px;
+    gap: 3px;
+    overflow: visible;
+    padding: 5px 7px;
     border: 1px solid #d4d4d4;
-    border-radius: 24px;
-    background: #ffffffed;
-    box-shadow: 0 3px 8px #00000012;
+    border-radius: 18px;
+    background: #fffffff5;
+    box-shadow: 0 5px 16px #00000018;
     pointer-events: auto;
     scrollbar-width: none;
 }
@@ -776,43 +776,201 @@ textarea:focus-visible {
     background: #b7e9f2;
 }
 
-.toolbar-separator {
-    width: 1px;
-    height: 32px;
+.toolbar-delete-tool {
+    width: 36px;
+    height: 38px;
     flex: 0 0 auto;
-    margin: 0 3px;
-    background: #d4d4d4;
+    border-radius: 10px;
 }
 
-.pen-width {
+.toolbar-delete-tool:not(:disabled) {
+    color: #dc2626;
+}
+
+.toolbar-dropdown-group {
+    position: relative;
     display: flex;
+    flex: 0 0 auto;
+}
+
+.toolbar-dropdown-group > .floating-tool {
     width: 48px;
     height: 44px;
+    border-radius: 12px;
+}
+
+.toolbar-dropdown-group > .floating-tool:hover,
+.toolbar-dropdown-group > .floating-tool[aria-expanded="true"] {
+    background: #f1f5f9;
+}
+
+.toolbar-dropdown-group > .floating-tool.is-active {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.toolbar-pen-icon {
+    display: none;
     align-items: center;
     justify-content: center;
+}
+
+.toolbar-pen-icon.is-visible {
+    display: inline-flex;
+}
+
+.toolbar-dropdown-menu {
+    position: absolute;
+    z-index: 50;
+    top: calc(100% + 8px);
+    left: 0;
+    display: none;
+    width: 200px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 10px 28px #00000024;
+}
+
+.toolbar-dropdown-menu.is-open {
+    display: grid;
+    gap: 7px;
+}
+
+.pen-dropdown-menu {
+    width: 184px;
+    padding: 8px;
+}
+
+.pen-choice-list {
+    display: grid;
+    gap: 3px;
+}
+
+.toolbar-menu-heading {
+    padding: 3px 6px;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.pen-choice {
+    display: flex;
+    width: 100%;
+    min-height: 38px;
+    align-items: center;
+    gap: 10px;
+    padding: 0 9px;
     border: 0;
-    border-radius: 12px;
+    border-radius: 9px;
     background: transparent;
+    color: #334155;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
 }
 
-.pen-width span {
-    display: block;
-    width: 24px;
+.pen-choice:hover,
+.pen-choice.is-selected {
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.pen-choice.is-pending {
+    outline: 1px solid #93c5fd;
+    background: #dbeafe;
+}
+
+.pen-choice svg {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+}
+
+.pen-settings-panel {
+    position: absolute;
+    z-index: 51;
+    top: 0;
+    left: calc(100% + 8px);
+    display: none;
+    width: 215px;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 10px 28px #00000024;
+}
+
+.pen-settings-panel.is-open {
+    display: grid;
+}
+
+.pen-settings-panel h3 {
+    margin: 0 0 2px;
+    color: #1e293b;
+    font-size: 14px;
+}
+
+.toolbar-apply-pen {
+    min-height: 36px;
+    border: 0;
+    border-radius: 9px;
+    background: #2563eb;
+    color: #fff;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.toolbar-apply-pen:hover {
+    background: #1d4ed8;
+}
+
+.toolbar-dropdown-group:last-child .toolbar-dropdown-menu {
+    right: 0;
+    left: auto;
+}
+
+.toolbar-dropdown-menu label {
+    color: #475569;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.toolbar-select {
+    width: 100%;
+    height: 38px;
+    padding: 0 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background-color: #fff;
+    color: #334155;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.toolbar-select:focus-visible {
+    outline: 2px solid #1685f8;
+    outline-offset: 1px;
+}
+
+.toolbar-popover-divider {
     height: 1px;
-    border-radius: 3px;
-    background: #555;
+    margin: 3px 0;
+    background: #e2e8f0;
 }
 
-.pen-width[data-pen-width="3"] span {
-    height: 3px;
-}
-
-.pen-width[data-pen-width="5"] span {
-    height: 5px;
-}
-
-.pen-width.is-width-selected {
-    background: #e7e7e7;
+.toolbar-color-options {
+    display: grid;
+    grid-template-columns: repeat(4, 34px);
+    gap: 8px;
 }
 
 .pen-color {
@@ -824,12 +982,37 @@ textarea:focus-visible {
     background: var(--pen-color);
 }
 
+.toolbar-custom-color {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 50%;
+}
+
+.toolbar-custom-color svg {
+    width: 20px;
+    height: 20px;
+}
+
 .pen-color[data-pen-color="#111111"] {
     --pen-color: #111;
 }
 
 .pen-color[data-pen-color="#1685f8"] {
     --pen-color: #1685f8;
+}
+
+.pen-color[data-pen-color="#dc2626"] {
+    --pen-color: #dc2626;
+}
+
+.pen-color[data-pen-color="#16a34a"] {
+    --pen-color: #16a34a;
+}
+
+.pen-color-yellow {
+    --pen-color: #facc15;
 }
 
 .pen-color-white {
@@ -877,6 +1060,16 @@ textarea:focus-visible {
 .notebook-page.max-w-4xl {
     width: min(88vw, 1050px);
     aspect-ratio: 1.414;
+}
+
+.notebook-background {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+    pointer-events: none;
 }
 
 .notebook-page textarea {
@@ -1021,6 +1214,157 @@ textarea:focus-visible {
     color: #737373;
     font-size: 18px;
     box-shadow: 0 4px 12px #00000010;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.page-counter-button {
+    display: inline-flex;
+    width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: #475569;
+    font-size: 24px;
+    line-height: 1;
+}
+
+.page-counter-button:hover:not(:disabled) {
+    background: #f1f5f9;
+}
+
+.page-counter-button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.cloud-connect-card {
+    margin-bottom: 10px;
+    padding: 10px;
+    border: 1px solid #dbe3ee;
+    border-radius: 14px;
+    background: #fff;
+}
+
+.cloud-connect-button {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 9px;
+    border: 0;
+    background: transparent;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+}
+
+.cloud-connect-button svg {
+    width: 17px;
+    height: 17px;
+    color: #2b59a2;
+}
+
+#cloudSyncStatus {
+    margin: 5px 0 0 26px;
+    color: #64748b;
+    font-size: 11px;
+}
+
+.cloud-auth-dialog {
+    width: min(100%, 420px);
+    padding: 22px;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 22px 60px #0f172a30;
+}
+
+.cloud-auth-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 20px;
+}
+
+.cloud-auth-heading h2 {
+    margin: 0;
+    color: #1e293b;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.cloud-auth-heading p,
+.cloud-account-panel p {
+    margin: 5px 0 0;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.cloud-auth-close {
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 22px;
+    line-height: 1;
+}
+
+.cloud-auth-form {
+    display: grid;
+    gap: 8px;
+}
+
+.cloud-auth-form label {
+    margin-top: 5px;
+    color: #475569;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.cloud-auth-form input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    background: #fff;
+    color: #1e293b;
+    font-size: 14px;
+}
+
+.cloud-auth-actions,
+.cloud-account-panel {
+    display: grid;
+    gap: 9px;
+    margin-top: 12px;
+}
+
+.cloud-auth-actions button,
+.cloud-account-panel button {
+    min-height: 40px;
+    padding: 9px 12px;
+    border: 0;
+    border-radius: 10px;
+    background: #2b59a2;
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.cloud-auth-actions button + button,
+.cloud-account-panel button + button {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #334155;
 }
 
 .editor-page-sidebar {
@@ -1298,6 +1642,37 @@ textarea:focus-visible {
     }
 }
 
+@media (max-width: 700px) {
+    .pen-dropdown-menu {
+        width: 145px;
+        padding: 6px;
+    }
+
+    .pen-choice {
+        min-height: 36px;
+        gap: 5px;
+        padding: 0 5px;
+        font-size: 11px;
+    }
+
+    .pen-settings-panel {
+        left: calc(100% + 5px);
+        width: 165px;
+        padding: 10px;
+    }
+
+    .toolbar-color-options {
+        grid-template-columns: repeat(4, 28px);
+        gap: 6px;
+    }
+
+    .toolbar-color-options .pen-color,
+    .toolbar-color-options .toolbar-custom-color {
+        width: 28px;
+        height: 28px;
+    }
+}
+
 @media (max-width: 600px) {
     .notebook-editor > header {
         overflow-x: auto;
@@ -1315,8 +1690,9 @@ textarea:focus-visible {
 
     .editor-floating-toolbar {
         max-width: calc(100vw - 16px);
-        gap: 3px;
+        gap: 4px;
         padding: 4px;
+        border-radius: 14px;
     }
 
     .floating-tool {
@@ -1324,8 +1700,49 @@ textarea:focus-visible {
         height: 40px;
     }
 
-    .pen-width {
-        width: 36px;
+    .toolbar-delete-tool {
+        width: 34px;
+        height: 36px;
+    }
+
+    .toolbar-dropdown-group > .floating-tool {
+        width: 42px;
+        height: 40px;
+    }
+
+    .pen-dropdown-menu {
+        width: 145px;
+        padding: 6px;
+    }
+
+    .pen-choice {
+        min-height: 36px;
+        gap: 5px;
+        padding: 0 5px;
+        font-size: 11px;
+    }
+
+    .pen-settings-panel {
+        left: calc(100% + 5px);
+        width: 165px;
+        padding: 10px;
+    }
+
+    .toolbar-color-options {
+        grid-template-columns: repeat(4, 28px);
+        gap: 6px;
+    }
+
+    .toolbar-color-options .pen-color,
+    .toolbar-color-options .toolbar-custom-color {
+        width: 28px;
+        height: 28px;
+    }
+
+    .toolbar-select {
+        height: 36px;
+        padding: 0 8px;
+        font-size: 12px;
     }
 
     .pen-color {

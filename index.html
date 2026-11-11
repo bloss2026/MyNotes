@@ -4,10 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>MyNotes - Dokumente</title>
+    <meta name="description" content="MyNotes – Notizbücher, handschriftliche Notizen und PDF-Import">
+    <meta name="theme-color" content="#2b59a2">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="MyNotes">
+    <link rel="apple-touch-icon" href="./icon.svg">
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/dexie@3.2.7/dist/dexie.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <!-- Manifest PWA -->
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="style.css">
@@ -63,6 +75,13 @@
         </div>
 
         <div>
+            <section class="cloud-connect-card">
+                <button id="cloudAccountButton" type="button" class="cloud-connect-button">
+                    <i data-lucide="cloud"></i>
+                    <span id="cloudAccountLabel">Mit Supabase verbinden</span>
+                </button>
+                <p id="cloudSyncStatus" role="status">Lokale Speicherung aktiv</p>
+            </section>
             <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors">
                 <i data-lucide="trash-2" class="w-4 h-4"></i> Papierkorb
             </a>
@@ -115,6 +134,33 @@
             </div>
         </div>
     </main>
+
+    <div id="cloudAuthModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+        <section class="cloud-auth-dialog" role="dialog" aria-modal="true" aria-labelledby="cloudAuthTitle">
+            <div class="cloud-auth-heading">
+                <div>
+                    <h2 id="cloudAuthTitle">Supabase Cloud</h2>
+                    <p id="cloudAuthMessage">Melde dich an, um deine Notizbücher zu synchronisieren.</p>
+                </div>
+                <button id="cloudAuthClose" type="button" class="cloud-auth-close" aria-label="Schließen">×</button>
+            </div>
+            <div id="cloudLoginForm" class="cloud-auth-form">
+                <label for="cloudEmail">E-Mail</label>
+                <input id="cloudEmail" type="email" autocomplete="email" required>
+                <label for="cloudPassword">Passwort</label>
+                <input id="cloudPassword" type="password" autocomplete="current-password" required>
+                <div class="cloud-auth-actions">
+                    <button id="cloudSignIn" type="button">Anmelden</button>
+                    <button id="cloudSignUp" type="button">Konto erstellen</button>
+                </div>
+            </div>
+            <div id="cloudAccountPanel" class="cloud-account-panel hidden">
+                <p>Eingeloggt als <strong id="cloudAccountEmail"></strong></p>
+                <button id="cloudSyncNow" type="button">Jetzt synchronisieren</button>
+                <button id="cloudSignOut" type="button">Abmelden</button>
+            </div>
+        </section>
+    </div>
 
     <!-- MODAL: Notizbuch erstellen -->
     <div id="notebookModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-0 md:p-4">
@@ -173,6 +219,13 @@
     </div>
 
     <!-- Scripts -->
+    <input id="documentImportInput" type="file" accept=".pdf,.goodnotes,.zip,application/pdf,application/zip" class="hidden" aria-label="PDF oder Goodnotes-Datei importieren">
+    <script>
+        window.MYNOTES_SUPABASE_CONFIG = Object.freeze({
+            url: 'https://ougmidncnjhnxzffynnr.supabase.co',
+            publishableKey: 'sb_publishable_WpJ_arBnO8_S0vvFuVDNAQ_zl0fCM_F'
+        });
+    </script>
     <script src="app.js"></script>
 </body>
 </html>

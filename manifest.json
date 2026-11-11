@@ -1,6 +1,8 @@
 {
   "name": "MyNotes",
   "short_name": "MyNotes",
+  "description": "Notizbücher und handschriftliche Notizen",
+  "id": "./index.html",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
@@ -8,15 +10,15 @@
   "theme_color": "#2b59a2",
   "icons": [
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/564/564429.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     },
     {
-      "src": "https://cdn-icons-png.flaticon.com/512/564/564429.png",
-      "sizes": "512x512",
-      "type": "image/png",
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
       "purpose": "any maskable"
     }
   ]

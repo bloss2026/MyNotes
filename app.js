@@ -1,5 +1,15 @@
 lucide.createIcons();
 
+let perfectFreehand = window.perfectFreehand || null;
+const perfectFreehandReady = import('https://unpkg.com/perfect-freehand@1.2.2/dist/esm/index.mjs')
+    .then(module => {
+        perfectFreehand = module;
+        window.perfectFreehand = module;
+    })
+    .catch(error => {
+        console.error('perfect-freehand konnte nicht geladen werden:', error);
+    });
+
 const toggleMenuBtn = document.getElementById('toggleMenuBtn');
 const sidebar = document.getElementById('sidebar');
 const sidebarBackdrop = document.getElementById('sidebarBackdrop');
@@ -112,10 +122,25 @@ function handleNewAction(action) {
         openNotebookModal();
     } else if (action === 'quick-note') {
         createQuickNote();
+    } else if (action === 'import') {
+        document.getElementById('documentImportInput')?.click();
     } else {
         alert(`${action[0].toUpperCase()}${action.slice(1)} ist in MyNotes noch nicht verfügbar.`);
     }
 }
+
+document.getElementById('documentImportInput')?.addEventListener('change', async event => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+        await importDocumentFile(file);
+    } catch (error) {
+        console.error('Dokument konnte nicht importiert werden:', error);
+        alert(error instanceof Error ? error.message : 'Das Dokument konnte nicht importiert werden.');
+    } finally {
+        event.target.value = '';
+    }
+});
 
 function createQuickNote() {
     closeNewMenus();
@@ -127,7 +152,7 @@ function createQuickNote() {
         content: ''
     };
     notebooks.push(quickNote);
-    localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
+    saveNotebookMetadata(quickNote.id);
     loadNotebooksToDashboard();
     openNotebook(quickNote.id);
 }
@@ -170,6 +195,540 @@ let selectedTemplate = { name: "Gepunktet", pattern: "paper-dotted" };
 let selectedCover = "Einfach";
 let selectedOrientation = "portrait";
 let notebooks = JSON.parse(localStorage.getItem('mynotes_notebooks')) || [];
+let cloudClient = null;
+let cloudSession = null;
+let cloudSyncTask = null;
+let cloudSyncTimer = null;
+let cloudSyncSuppression = 0;
+let notebookTombstones = {};
+try {
+    notebookTombstones = JSON.parse(localStorage.getItem('mynotes_deleted_notebooks')) || {};
+} catch (error) {
+    console.error('Lokale Löschmarkierungen konnten nicht gelesen werden:', error);
+}
+const notebookDb = window.Dexie ? new Dexie('mynotes-data') : null;
+let notebookStorageError = null;
+let notebookStorageErrorNotified = false;
+
+if (notebookDb) {
+    notebookDb.version(1).stores({
+        pages: '[notebookId+pageIndex], notebookId'
+    });
+}
+
+async function initializeNotebookStorage() {
+    if (!notebookDb) throw new Error('Dexie konnte nicht geladen werden.');
+    await notebookDb.open();
+    const recordsToMigrate = [];
+    for (const notebook of notebooks) {
+        const pages = getNotebookPages(notebook);
+        const keys = pages.map((page, pageIndex) => [String(notebook.id), pageIndex]);
+        const existing = await notebookDb.pages.bulkGet(keys);
+        pages.forEach((page, pageIndex) => {
+            if (!existing[pageIndex]) {
+                recordsToMigrate.push({
+                    ...page,
+                    notebookId: String(notebook.id),
+                    pageIndex,
+                    shapes: Array.isArray(page.shapes) ? page.shapes : []
+                });
+            }
+        });
+    }
+    if (recordsToMigrate.length) await notebookDb.pages.bulkPut(recordsToMigrate);
+    return true;
+}
+
+const notebookStorageReady = initializeNotebookStorage().catch(error => {
+    notebookStorageError = error;
+    console.error('IndexedDB für Notizen konnte nicht initialisiert werden:', error);
+    return false;
+});
+
+async function ensureNotebookStorage() {
+    if (!await notebookStorageReady) {
+        throw notebookStorageError || new Error('IndexedDB ist nicht verfügbar.');
+    }
+}
+
+function reportNotebookStorageError(error) {
+    console.error('Notizseite konnte nicht in IndexedDB gespeichert werden:', error);
+    if (!notebookStorageErrorNotified) {
+        notebookStorageErrorNotified = true;
+        alert('Notizen konnten nicht lokal gespeichert werden. Bitte prüfe den verfügbaren Speicherplatz und lade die Seite erneut.');
+    }
+}
+
+async function writeNotebookPage(notebookId, pageIndex, page) {
+    await ensureNotebookStorage();
+    await notebookDb.pages.put({
+        ...page,
+        notebookId: String(notebookId),
+        pageIndex,
+        shapes: Array.isArray(page.shapes) ? page.shapes : []
+    });
+}
+
+function saveNotebookMetadata(updatedNotebookId = null) {
+    if (updatedNotebookId !== null) {
+        const updatedNotebook = notebooks.find(notebook => String(notebook.id) === String(updatedNotebookId));
+        if (updatedNotebook) updatedNotebook.updatedAt = new Date().toISOString();
+    }
+    const metadata = notebooks.map(notebook => {
+        const { pages, ...details } = notebook;
+        return {
+            ...details,
+            pageCount: Array.isArray(pages) ? pages.length : notebook.pageCount || 1
+        };
+    });
+    localStorage.setItem('mynotes_notebooks', JSON.stringify(metadata));
+    scheduleCloudSync();
+}
+
+function setCloudStatus(message) {
+    const status = document.getElementById('cloudSyncStatus');
+    const modalMessage = document.getElementById('cloudAuthMessage');
+    if (status) status.textContent = message;
+    if (modalMessage) modalMessage.textContent = message;
+}
+
+function openCloudAuthModal() {
+    document.getElementById('cloudAuthModal')?.classList.remove('hidden');
+}
+
+function closeCloudAuthModal() {
+    document.getElementById('cloudAuthModal')?.classList.add('hidden');
+}
+
+function updateCloudAccountUi(session) {
+    const label = document.getElementById('cloudAccountLabel');
+    const loginForm = document.getElementById('cloudLoginForm');
+    const accountPanel = document.getElementById('cloudAccountPanel');
+    const accountEmail = document.getElementById('cloudAccountEmail');
+    if (label) label.textContent = session ? session.user.email || 'Supabase-Konto' : 'Mit Supabase verbinden';
+    loginForm?.classList.toggle('hidden', Boolean(session));
+    accountPanel?.classList.toggle('hidden', !session);
+    if (accountEmail) accountEmail.textContent = session?.user?.email || '';
+}
+
+function scheduleCloudSync() {
+    if (cloudSyncSuppression || !cloudClient || !cloudSession) return;
+    if (!navigator.onLine) {
+        setCloudStatus('Offline – Änderungen werden lokal gespeichert.');
+        return;
+    }
+    window.clearTimeout(cloudSyncTimer);
+    setCloudStatus('Änderung vorgemerkt – Synchronisierung läuft gleich.');
+    cloudSyncTimer = window.setTimeout(() => {
+        void syncCloudData();
+    }, 1200);
+}
+
+async function initializeSupabaseCloud() {
+    const config = window.MYNOTES_SUPABASE_CONFIG;
+    if (!window.supabase?.createClient || !config?.url || !config?.publishableKey) {
+        setCloudStatus('Supabase SDK oder Projektkonfiguration fehlt.');
+        return;
+    }
+
+    try {
+        cloudClient = window.supabase.createClient(config.url, config.publishableKey);
+        const { data, error } = await cloudClient.auth.getSession();
+        if (error) {
+            console.error('Supabase-Sitzung konnte nicht geladen werden:', error);
+            setCloudStatus(`Supabase-Anmeldung fehlgeschlagen: ${error.message}`);
+            return;
+        }
+
+        cloudSession = data.session;
+        updateCloudAccountUi(cloudSession);
+        if (cloudSession) {
+            setCloudStatus('Angemeldet – Synchronisierung wird gestartet.');
+            void syncCloudData();
+        } else {
+            setCloudStatus('Lokale Speicherung aktiv – melde dich für die Cloud-Synchronisierung an.');
+        }
+
+        cloudClient.auth.onAuthStateChange((_event, session) => {
+            cloudSession = session;
+            updateCloudAccountUi(session);
+            if (session) {
+                setCloudStatus('Angemeldet – Synchronisierung wird gestartet.');
+                window.setTimeout(() => void syncCloudData(), 0);
+            } else {
+                setCloudStatus('Abgemeldet – deine lokale Kopie bleibt erhalten.');
+            }
+        });
+    } catch (error) {
+        console.error('Supabase konnte nicht initialisiert werden:', error);
+        setCloudStatus(`Supabase konnte nicht initialisiert werden: ${error.message || error}`);
+    }
+}
+
+async function submitCloudAuthentication(action) {
+    if (!cloudClient) {
+        setCloudStatus('Supabase ist noch nicht verfügbar. Bitte lade die Seite online neu.');
+        return;
+    }
+    const email = document.getElementById('cloudEmail')?.value.trim();
+    const password = document.getElementById('cloudPassword')?.value;
+    if (!email || !password) {
+        setCloudStatus('Bitte gib E-Mail-Adresse und Passwort ein.');
+        return;
+    }
+    setCloudStatus(action === 'signup' ? 'Konto wird erstellt …' : 'Anmeldung läuft …');
+    try {
+        const response = action === 'signup'
+            ? await cloudClient.auth.signUp({ email, password })
+            : await cloudClient.auth.signInWithPassword({ email, password });
+        if (response.error) {
+            console.error('Supabase-Anmeldung fehlgeschlagen:', response.error);
+            setCloudStatus(`Anmeldung fehlgeschlagen: ${response.error.message}`);
+            return;
+        }
+        if (action === 'signup' && !response.data.session) {
+            setCloudStatus('Konto erstellt. Bitte bestätige zuerst den Link in deiner E-Mail.');
+            return;
+        }
+        cloudSession = response.data.session;
+        updateCloudAccountUi(cloudSession);
+        if (cloudSession) {
+            setCloudStatus('Angemeldet – Synchronisierung wird gestartet.');
+            await syncCloudData();
+        }
+    } catch (error) {
+        console.error('Supabase-Anmeldung ist fehlgeschlagen:', error);
+        setCloudStatus(`Anmeldung fehlgeschlagen: ${error.message || error}`);
+    }
+}
+
+async function signOutOfCloud() {
+    if (!cloudClient) return;
+    try {
+        const { error } = await cloudClient.auth.signOut();
+        if (error) {
+            console.error('Abmeldung bei Supabase fehlgeschlagen:', error);
+            setCloudStatus(`Abmeldung fehlgeschlagen: ${error.message}`);
+            return;
+        }
+        closeCloudAuthModal();
+    } catch (error) {
+        console.error('Abmeldung bei Supabase fehlgeschlagen:', error);
+        setCloudStatus(`Abmeldung fehlgeschlagen: ${error.message || error}`);
+    }
+}
+
+document.getElementById('cloudAccountButton')?.addEventListener('click', openCloudAuthModal);
+document.getElementById('cloudAuthClose')?.addEventListener('click', closeCloudAuthModal);
+document.getElementById('cloudAuthModal')?.addEventListener('click', event => {
+    if (event.target === event.currentTarget) closeCloudAuthModal();
+});
+document.getElementById('cloudSignIn')?.addEventListener('click', () => void submitCloudAuthentication('signin'));
+document.getElementById('cloudSignUp')?.addEventListener('click', () => void submitCloudAuthentication('signup'));
+document.getElementById('cloudSignOut')?.addEventListener('click', () => void signOutOfCloud());
+document.getElementById('cloudSyncNow')?.addEventListener('click', () => void syncCloudData());
+window.addEventListener('online', scheduleCloudSync);
+
+function saveNotebookTombstones() {
+    localStorage.setItem('mynotes_deleted_notebooks', JSON.stringify(notebookTombstones));
+}
+
+function cloudNotebookId(notebookId) {
+    return String(notebookId);
+}
+
+function cloudPageFolder(userId, notebookId) {
+    return `${userId}/${encodeURIComponent(cloudNotebookId(notebookId))}/pages`;
+}
+
+function cloudPagePath(userId, notebookId, pageIndex) {
+    return `${cloudPageFolder(userId, notebookId)}/${pageIndex}.zip`;
+}
+
+function throwCloudError(error, operation) {
+    if (error) throw new Error(`${operation}: ${error.message || error}`);
+}
+
+async function packCloudPage(page) {
+    const zip = new JSZip();
+    const pageData = JSON.parse(JSON.stringify(page));
+    let assetIndex = 0;
+    const packImage = value => {
+        if (typeof value !== 'string' || !value.startsWith('data:')) return value;
+        const { mimeType, bytes } = dataUrlToBytes(value);
+        const extension = (mimeType.split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '');
+        const path = `assets/${assetIndex++}.${extension}`;
+        zip.file(path, bytes);
+        return { __mynotesAsset: path, mimeType };
+    };
+
+    pageData.drawing = packImage(pageData.drawing);
+    pageData.backgroundDataUrl = packImage(pageData.backgroundDataUrl);
+    (pageData.shapes || []).forEach(shape => {
+        if (shape.kind === 'image') shape.src = packImage(shape.src);
+    });
+    zip.file('page.json', JSON.stringify(pageData));
+    return zip.generateAsync({
+        type: 'blob',
+        compression: 'DEFLATE',
+        compressionOptions: { level: 3 }
+    });
+}
+
+async function unpackCloudPage(blob) {
+    const zip = await JSZip.loadAsync(blob);
+    const pageFile = zip.file('page.json');
+    if (!pageFile) throw new Error('Die Cloud-Seite enthält keine Seitendaten.');
+    const page = JSON.parse(await pageFile.async('text'));
+    const unpackImage = async value => {
+        if (!value || typeof value !== 'object' || !value.__mynotesAsset) return value;
+        const asset = zip.file(value.__mynotesAsset);
+        if (!asset) throw new Error(`Bilddatei ${value.__mynotesAsset} fehlt in der Cloud-Seite.`);
+        const bytes = await asset.async('uint8array');
+        return fileAsDataUrl(new Blob([bytes], { type: value.mimeType }));
+    };
+    page.drawing = await unpackImage(page.drawing);
+    page.backgroundDataUrl = await unpackImage(page.backgroundDataUrl);
+    for (const shape of page.shapes || []) {
+        if (shape.kind === 'image') shape.src = await unpackImage(shape.src);
+    }
+    return page;
+}
+
+async function listCloudPageFiles(userId, notebookId) {
+    const storage = cloudClient.storage.from('mynotes-pages');
+    const folder = cloudPageFolder(userId, notebookId);
+    const paths = [];
+    for (let offset = 0; ; offset += 100) {
+        const { data, error } = await storage.list(folder, { limit: 100, offset });
+        throwCloudError(error, 'Cloud-Seiten konnten nicht aufgelistet werden');
+        paths.push(...(data || []).map(file => `${folder}/${file.name}`));
+        if (!data || data.length < 100) break;
+    }
+    return paths;
+}
+
+async function removeCloudPageFiles(userId, notebookId) {
+    const paths = await listCloudPageFiles(userId, notebookId);
+    if (!paths.length) return;
+    const { error } = await cloudClient.storage.from('mynotes-pages').remove(paths);
+    throwCloudError(error, 'Cloud-Seiten konnten nicht gelöscht werden');
+}
+
+async function getPagesForCloud(notebook) {
+    await ensureNotebookStorage();
+    const storedPages = await notebookDb.pages
+        .where('notebookId')
+        .equals(String(notebook.id))
+        .sortBy('pageIndex');
+    if (storedPages.length) {
+        return storedPages.map(({ notebookId, pageIndex, ...page }) => page);
+    }
+    return getNotebookPages(notebook);
+}
+
+async function uploadCloudNotebook(userId, notebook) {
+    const pages = await getPagesForCloud(notebook);
+    const updatedAt = notebook.updatedAt || new Date().toISOString();
+    notebook.updatedAt = updatedAt;
+    const metadata = { ...notebook };
+    delete metadata.pages;
+    const { error: metadataError } = await cloudClient
+        .from('mynotes_notebooks')
+        .upsert({
+            notebook_id: cloudNotebookId(notebook.id),
+            metadata,
+            page_count: pages.length,
+            updated_at: updatedAt,
+            deleted_at: null
+        }, { onConflict: 'user_id,notebook_id' });
+    throwCloudError(metadataError, `Notizbuch „${notebook.title}“ konnte nicht synchronisiert werden`);
+
+    for (let pageIndex = 0; pageIndex < pages.length; pageIndex += 1) {
+        const archive = await packCloudPage(pages[pageIndex]);
+        const { error } = await cloudClient.storage
+            .from('mynotes-pages')
+            .upload(cloudPagePath(userId, notebook.id, pageIndex), archive, {
+                contentType: 'application/zip',
+                upsert: true
+            });
+        throwCloudError(error, `Seite ${pageIndex + 1} von „${notebook.title}“ konnte nicht hochgeladen werden`);
+    }
+
+    const existingPaths = await listCloudPageFiles(userId, notebook.id);
+    const stalePaths = existingPaths.filter(path => {
+        const pageIndex = Number(path.slice(path.lastIndexOf('/') + 1).replace(/\.zip$/i, ''));
+        return Number.isInteger(pageIndex) && pageIndex >= pages.length;
+    });
+    if (stalePaths.length) {
+        const { error } = await cloudClient.storage.from('mynotes-pages').remove(stalePaths);
+        throwCloudError(error, 'Veraltete Cloud-Seiten konnten nicht gelöscht werden');
+    }
+}
+
+async function downloadCloudNotebook(userId, row) {
+    const metadata = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+    const pages = [];
+    for (let pageIndex = 0; pageIndex < row.page_count; pageIndex += 1) {
+        const { data, error } = await cloudClient.storage
+            .from('mynotes-pages')
+            .download(cloudPagePath(userId, row.notebook_id, pageIndex));
+        throwCloudError(error, `Cloud-Seite ${pageIndex + 1} konnte nicht geladen werden`);
+        pages.push(await unpackCloudPage(data));
+    }
+    if (!pages.length) pages.push({ content: '', drawing: '', shapes: [] });
+
+    const id = /^\d+$/.test(row.notebook_id) ? Number(row.notebook_id) : row.notebook_id;
+    const notebook = {
+        ...metadata,
+        id,
+        updatedAt: row.updated_at,
+        pageCount: pages.length,
+        pages
+    };
+    await notebookDb.pages.where('notebookId').equals(String(id)).delete();
+    await notebookDb.pages.bulkPut(pages.map((page, pageIndex) => ({
+        ...page,
+        notebookId: String(id),
+        pageIndex
+    })));
+    notebooks = notebooks.filter(item => String(item.id) !== String(id));
+    notebooks.push(notebook);
+    delete notebookTombstones[String(id)];
+}
+
+async function applyCloudNotebookDeletion(row) {
+    const id = /^\d+$/.test(row.notebook_id) ? Number(row.notebook_id) : row.notebook_id;
+    notebooks = notebooks.filter(item => String(item.id) !== String(id));
+    await notebookDb.pages.where('notebookId').equals(String(id)).delete();
+    notebookTombstones[String(id)] = row.deleted_at || row.updated_at;
+}
+
+async function uploadCloudNotebookDeletion(userId, notebookId, deletedAt) {
+    const { error } = await cloudClient
+        .from('mynotes_notebooks')
+        .upsert({
+            notebook_id: cloudNotebookId(notebookId),
+            metadata: {},
+            page_count: 0,
+            updated_at: deletedAt,
+            deleted_at: deletedAt
+        }, { onConflict: 'user_id,notebook_id' });
+    throwCloudError(error, 'Notizbuch-Löschung konnte nicht synchronisiert werden');
+    await removeCloudPageFiles(userId, notebookId);
+}
+
+async function syncCloudData() {
+    if (!cloudClient || !cloudSession) return false;
+    if (!navigator.onLine) {
+        setCloudStatus('Offline – Änderungen werden lokal gespeichert.');
+        return false;
+    }
+    if (cloudSyncTask) return cloudSyncTask;
+
+    cloudSyncTask = (async () => {
+        setCloudStatus('Synchronisierung läuft …');
+        await ensureNotebookStorage();
+        const userId = cloudSession.user.id;
+        const localOwnerId = localStorage.getItem('mynotes_cloud_owner');
+        if (localOwnerId && localOwnerId !== userId) {
+            setCloudStatus('Dieser lokale Notizbestand ist einem anderen Supabase-Konto zugeordnet. Zum Schutz deiner Daten wurde der Sync gestoppt.');
+            return false;
+        }
+        if (!localOwnerId) localStorage.setItem('mynotes_cloud_owner', userId);
+        const { data: remoteRows, error } = await cloudClient
+            .from('mynotes_notebooks')
+            .select('notebook_id, metadata, page_count, updated_at, deleted_at');
+        throwCloudError(error, 'Cloud-Notizbücher konnten nicht geladen werden');
+
+        const remoteById = new Map((remoteRows || []).map(row => [String(row.notebook_id), row]));
+        const localById = new Map(notebooks.map(notebook => [String(notebook.id), notebook]));
+        const allIds = new Set([
+            ...remoteById.keys(),
+            ...localById.keys(),
+            ...Object.keys(notebookTombstones)
+        ]);
+        const changedNotebookIds = new Set();
+        cloudSyncSuppression += 1;
+        try {
+            for (const id of allIds) {
+                const remote = remoteById.get(id);
+                const local = localById.get(id);
+                const deletedAt = notebookTombstones[id];
+                const remoteTime = Date.parse(remote?.updated_at || '') || 0;
+
+                if (deletedAt) {
+                    const localDeleteTime = Date.parse(deletedAt) || 0;
+                    if (remote && !remote.deleted_at && remoteTime > localDeleteTime) {
+                        delete notebookTombstones[id];
+                        await downloadCloudNotebook(userId, remote);
+                        changedNotebookIds.add(id);
+                    } else {
+                        const winningDelete = remote?.deleted_at && remoteTime > localDeleteTime
+                            ? remote.deleted_at
+                            : deletedAt;
+                        if (!remote?.deleted_at || remoteTime < localDeleteTime) {
+                            await uploadCloudNotebookDeletion(userId, id, winningDelete);
+                        } else {
+                            await removeCloudPageFiles(userId, id);
+                        }
+                        notebookTombstones[id] = winningDelete;
+                    }
+                    continue;
+                }
+
+                if (local && remote) {
+                    const localTime = Date.parse(local.updatedAt || '') || 0;
+                    if (remote.deleted_at) {
+                        if (localTime > remoteTime) await uploadCloudNotebook(userId, local);
+                        else {
+                            await applyCloudNotebookDeletion(remote);
+                            changedNotebookIds.add(id);
+                        }
+                    } else if (localTime >= remoteTime) {
+                        await uploadCloudNotebook(userId, local);
+                    } else {
+                        await downloadCloudNotebook(userId, remote);
+                        changedNotebookIds.add(id);
+                    }
+                } else if (local) {
+                    await uploadCloudNotebook(userId, local);
+                } else if (remote?.deleted_at) {
+                    await applyCloudNotebookDeletion(remote);
+                    changedNotebookIds.add(id);
+                } else if (remote) {
+                    await downloadCloudNotebook(userId, remote);
+                    changedNotebookIds.add(id);
+                }
+            }
+        } finally {
+            saveNotebookTombstones();
+            saveNotebookMetadata();
+            cloudSyncSuppression -= 1;
+        }
+        loadNotebooksToDashboard();
+        if (currentNotebookId !== null && changedNotebookIds.has(String(currentNotebookId))) {
+            if (notebooks.some(notebook => String(notebook.id) === String(currentNotebookId))) {
+                await openNotebook(currentNotebookId);
+            } else {
+                location.reload();
+                return true;
+            }
+        }
+        setCloudStatus(`Synchronisiert um ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}.`);
+        return true;
+    })();
+
+    try {
+        return await cloudSyncTask;
+    } catch (error) {
+        console.error('Supabase-Synchronisierung fehlgeschlagen:', error);
+        setCloudStatus(`Synchronisierung fehlgeschlagen: ${error.message || error}`);
+        return false;
+    } finally {
+        cloudSyncTask = null;
+    }
+}
 
 const coverOptions = [
     { name: "Einfach", className: "cover-simple" },
@@ -319,11 +878,12 @@ function createNotebook() {
         language: document.getElementById('languageSelect').value,
         orientation: selectedOrientation,
         date: new Date().toLocaleDateString('de-DE'),
-        content: ''
+        content: '',
+        updatedAt: new Date().toISOString()
     };
 
     notebooks.push(newNb);
-    localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
+    saveNotebookMetadata(newNb.id);
 
     closeNotebookModal();
     loadNotebooksToDashboard();
@@ -347,7 +907,19 @@ let currentPageIndex = 0;
 let activeEditorTool = 'pen';
 let activePenColor = '#111111';
 let activePenWidth = 3;
+let activePenTool = 'pen';
+const penSettings = {
+    pen: { color: '#111111', width: 3 },
+    pencil: { color: '#111111', width: 1 },
+    'pen-fountain': { color: '#111111', width: 3 },
+    highlighter: { color: '#facc15', width: 5 }
+};
+let pendingPenTool = 'pen';
+let pendingPenSettings = { ...penSettings.pen };
+let activeEraserWidth = 3;
+let activeShapeWidth = 3;
 let activeDrawing = false;
+let currentStrokePoints = [];
 let drawingStartPoint = null;
 let drawingEndPoint = null;
 let drawingSnapshot = null;
@@ -491,7 +1063,26 @@ function persistNotebookPages() {
     page.content = textarea.value;
     if (canvas && canvas.width && canvas.height) page.drawing = canvas.toDataURL();
     notebook.content = page.content;
-    localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
+    notebook.updatedAt = new Date().toISOString();
+    void writeNotebookPage(notebook.id, currentPageIndex, page).catch(reportNotebookStorageError);
+    saveNotebookMetadata(notebook.id);
+}
+
+function setNotebookBackground(page) {
+    const background = document.getElementById('notebookBackground');
+    const pageElement = document.getElementById('notebookPage');
+    if (pageElement && page?.orientation) {
+        pageElement.classList.toggle('max-w-4xl', page.orientation === 'landscape');
+        pageElement.classList.toggle('max-w-2xl', page.orientation !== 'landscape');
+    }
+    if (!background) return;
+    if (page?.backgroundDataUrl) {
+        background.src = page.backgroundDataUrl;
+        background.classList.remove('hidden');
+    } else {
+        background.removeAttribute('src');
+        background.classList.add('hidden');
+    }
 }
 
 function escapeEditorText(value) {
@@ -506,7 +1097,26 @@ function updatePageCounter() {
     const pages = notebooks.find(item => item.id === currentNotebookId)?.pages || [];
     const counter = document.getElementById('pageCounter');
     const sidebarCounter = document.getElementById('editorSidebarPages');
-    if (counter) counter.textContent = `${currentPageIndex + 1} von ${pages.length || 1}`;
+    if (counter) {
+        counter.replaceChildren();
+        const previousButton = document.createElement('button');
+        previousButton.type = 'button';
+        previousButton.className = 'page-counter-button';
+        previousButton.dataset.editorAction = 'previous-page';
+        previousButton.setAttribute('aria-label', 'Vorherige Seite');
+        previousButton.textContent = '‹';
+        previousButton.disabled = currentPageIndex <= 0;
+        const pageLabel = document.createElement('span');
+        pageLabel.textContent = `${currentPageIndex + 1} von ${pages.length || 1}`;
+        const nextButton = document.createElement('button');
+        nextButton.type = 'button';
+        nextButton.className = 'page-counter-button';
+        nextButton.dataset.editorAction = 'next-page';
+        nextButton.setAttribute('aria-label', 'Nächste Seite');
+        nextButton.textContent = '›';
+        nextButton.disabled = currentPageIndex >= pages.length - 1;
+        counter.append(previousButton, pageLabel, nextButton);
+    }
     const menuCounter = document.getElementById('menuPageCounter');
     if (menuCounter) menuCounter.textContent = `${currentPageIndex + 1} von ${pages.length || 1}`;
     if (sidebarCounter) {
@@ -536,6 +1146,7 @@ function showNotebookPage(index, skipSave = false) {
     const textarea = document.getElementById('notebookContent');
     if (textarea) textarea.value = pages[index].content || '';
     lastEditorText = pages[index].content || '';
+    setNotebookBackground(pages[index]);
     restorePageDrawing(pages[index].drawing || '');
     selectedShapeId = null;
     renderNotebookShapes();
@@ -551,11 +1162,13 @@ function addNotebookPage(duplicateCurrent = false) {
     const pages = getNotebookPages(notebook);
     const currentPage = pages[currentPageIndex] || { content: '', drawing: '' };
     const page = duplicateCurrent
-        ? { content: currentPage.content, drawing: currentPage.drawing, shapes: (currentPage.shapes || []).map(shape => ({ ...shape })) }
-        : { content: '', drawing: '', shapes: [] };
+        ? { ...currentPage, shapes: (currentPage.shapes || []).map(shape => ({ ...shape })) }
+        : { content: '', drawing: '', shapes: [], orientation: currentPage.orientation || notebook.orientation };
     pages.splice(currentPageIndex + 1, 0, page);
     currentPageIndex += 1;
-    localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
+    void Promise.all(pages.map((pageData, pageIndex) => writeNotebookPage(notebook.id, pageIndex, pageData)))
+        .catch(reportNotebookStorageError);
+    saveNotebookMetadata(notebook.id);
     showNotebookPage(currentPageIndex, true);
     closeMenu();
 }
@@ -599,17 +1212,63 @@ function resizeNotebookCanvas() {
     restorePageDrawing(oldImage);
 }
 
+function stagePenChoice(tool) {
+    if (!Object.hasOwn(penSettings, tool)) return;
+    pendingPenTool = tool;
+    pendingPenSettings = { ...penSettings[tool] };
+    document.querySelectorAll('[data-pen-choice]').forEach(button => {
+        const selected = button.dataset.penChoice === tool;
+        button.classList.toggle('is-pending', selected);
+        button.setAttribute('aria-pressed', String(selected));
+    });
+    const widthSelect = document.getElementById('penWidthSelect');
+    if (widthSelect) widthSelect.value = String(pendingPenSettings.width);
+    const colorPicker = document.getElementById('editorColorPicker');
+    if (colorPicker) colorPicker.value = pendingPenSettings.color;
+    document.querySelectorAll('[data-pen-color]').forEach(button => {
+        button.classList.toggle('is-color-selected', button.dataset.penColor === pendingPenSettings.color);
+    });
+    const choice = document.querySelector(`[data-pen-choice="${tool}"]`);
+    const title = document.getElementById('penSettingsTitle');
+    if (title && choice) title.textContent = choice.dataset.penLabel;
+}
+
+function updateFloatingPenIcon(tool) {
+    document.querySelectorAll('[data-pen-icon]').forEach(icon => {
+        icon.classList.toggle('is-visible', icon.dataset.penIcon === tool);
+    });
+    const trigger = document.getElementById('penToolTrigger');
+    const choice = document.querySelector(`[data-pen-choice="${tool}"]`);
+    if (trigger && choice) {
+        const label = choice.dataset.penLabel;
+        trigger.setAttribute('aria-label', `Stift: ${label}`);
+        trigger.title = label;
+    }
+}
+
 function setEditorTool(tool) {
     activeEditorTool = tool;
+    if (Object.hasOwn(penSettings, tool)) activePenTool = tool;
     document.querySelectorAll('[data-editor-tool]').forEach(button => {
-        const selected = button.dataset.editorTool === tool;
+        const selected = button.dataset.editorTool === tool
+            || (button.dataset.toolbarGroup === 'pen' && Object.hasOwn(penSettings, tool));
         button.classList.toggle('is-active', selected);
         button.setAttribute('aria-pressed', String(selected));
     });
+    document.querySelectorAll('[data-pen-choice]').forEach(button => {
+        const selected = button.dataset.penChoice === activePenTool;
+        button.classList.toggle('is-selected', selected);
+    });
+    if (Object.hasOwn(penSettings, tool)) {
+        activePenColor = penSettings[tool].color;
+        activePenWidth = penSettings[tool].width;
+        stagePenChoice(tool);
+        updateFloatingPenIcon(tool);
+    }
     const canvas = document.getElementById('notebookDrawing');
     const textarea = document.getElementById('notebookContent');
-    if (canvas) canvas.classList.toggle('is-drawable', ['pen', 'pen-fountain', 'eraser', 'highlighter', 'shapes', 'sticky', 'objects'].includes(tool));
-    if (textarea) textarea.readOnly = ['pen', 'eraser', 'highlighter', 'lasso', 'shapes'].includes(tool);
+    if (canvas) canvas.classList.toggle('is-drawable', ['pen', 'pencil', 'pen-fountain', 'eraser', 'highlighter', 'shapes', 'sticky', 'objects'].includes(tool));
+    if (textarea) textarea.readOnly = ['pen', 'pencil', 'eraser', 'highlighter', 'lasso', 'shapes'].includes(tool);
     const shapesSvg = document.getElementById('notebookShapes');
     if (shapesSvg) shapesSvg.classList.toggle('is-selecting', tool === 'lasso');
     updateDeleteShapeButton();
@@ -802,6 +1461,21 @@ function drawEditorObject(context, point) {
     renderNotebookShapes();
 }
 
+function closeToolbarDropdowns() {
+    document.querySelectorAll('.toolbar-dropdown-menu.is-open').forEach(menu => menu.classList.remove('is-open'));
+    document.querySelectorAll('[data-toolbar-dropdown-toggle]').forEach(button => button.setAttribute('aria-expanded', 'false'));
+    document.getElementById('penSettingsPanel')?.classList.remove('is-open');
+}
+
+function toggleToolbarDropdown(menuId) {
+    const menu = document.getElementById(menuId);
+    if (!menu) return;
+    const shouldOpen = !menu.classList.contains('is-open');
+    closeToolbarDropdowns();
+    menu.classList.toggle('is-open', shouldOpen);
+    menu.parentElement.querySelector('[data-toolbar-dropdown-toggle]')?.setAttribute('aria-expanded', String(shouldOpen));
+}
+
 function attachEditorInteractions() {
     const editor = document.getElementById('notebookEditor');
     const textarea = document.getElementById('notebookContent');
@@ -811,15 +1485,33 @@ function attachEditorInteractions() {
     if (!editor || !textarea || !canvas || !canvasArea || !laserDot) return;
 
     editor.addEventListener('click', event => {
+        const dropdownTrigger = event.target.closest('[data-toolbar-dropdown-toggle]');
+        if (dropdownTrigger) {
+            const menu = document.getElementById(dropdownTrigger.dataset.toolbarDropdownToggle);
+            const isOpening = !menu?.classList.contains('is-open');
+            if (dropdownTrigger.dataset.toolbarGroup === 'pen') {
+                if (isOpening) stagePenChoice(activePenTool);
+            } else {
+                setEditorTool(dropdownTrigger.dataset.editorTool);
+            }
+            toggleToolbarDropdown(dropdownTrigger.dataset.toolbarDropdownToggle);
+            return;
+        }
         const toolButton = event.target.closest('[data-editor-tool]');
         if (toolButton) {
             setEditorTool(toolButton.dataset.editorTool);
+            closeToolbarDropdowns();
             return;
         }
         const actionButton = event.target.closest('[data-editor-action]');
-        if (actionButton) runEditorAction(actionButton.dataset.editorAction);
+        if (actionButton) {
+            const action = actionButton.dataset.editorAction;
+            runEditorAction(action);
+            if (action !== 'choose-color') closeToolbarDropdowns();
+            return;
+        }
+        if (!event.target.closest('.toolbar-dropdown-group')) closeToolbarDropdowns();
     });
-
     lastEditorText = textarea.value;
     textarea.addEventListener('input', () => {
         editorUndoStack.push(lastEditorText);
@@ -843,9 +1535,53 @@ function attachEditorInteractions() {
         const bounds = canvas.getBoundingClientRect();
         return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
     };
+    function renderFreehandStroke(isComplete, pointerType) {
+        if (!drawingSnapshot || !currentStrokePoints.length) return;
+        context.putImageData(drawingSnapshot, 0, 0);
+        const isEraser = activeEditorTool === 'eraser';
+        const size = isEraser
+            ? activeEraserWidth * 4
+            : activeEditorTool === 'pencil' ? Math.max(1, activePenWidth * 0.8) : activePenWidth;
+        context.globalCompositeOperation = isEraser ? 'destination-out' : 'source-over';
+        context.globalAlpha = activeEditorTool === 'highlighter' ? 0.4 : activeEditorTool === 'pencil' ? 0.72 : 1;
+        context.fillStyle = activePenColor;
+        context.strokeStyle = context.fillStyle;
+        context.lineWidth = size;
+        context.lineCap = 'round';
+        context.lineJoin = 'round';
+
+        const getStroke = perfectFreehand?.getStroke;
+        if (typeof getStroke === 'function') {
+            const outline = getStroke(currentStrokePoints, {
+                size,
+                thinning: activeEditorTool === 'highlighter' ? 0.08 : activeEditorTool === 'pencil' ? 0.72 : 0.48,
+                smoothing: 0.55,
+                streamline: 0.45,
+                simulatePressure: pointerType !== 'pen',
+                last: isComplete
+            });
+            if (outline.length) {
+                context.beginPath();
+                context.moveTo(outline[0][0], outline[0][1]);
+                for (let index = 1; index < outline.length; index += 1) {
+                    context.lineTo(outline[index][0], outline[index][1]);
+                }
+                context.closePath();
+                context.fill();
+            }
+        } else {
+            context.beginPath();
+            context.moveTo(currentStrokePoints[0][0], currentStrokePoints[0][1]);
+            currentStrokePoints.slice(1).forEach(point => context.lineTo(point[0], point[1]));
+            context.stroke();
+        }
+        context.globalCompositeOperation = 'source-over';
+        context.globalAlpha = 1;
+    }
     canvas.addEventListener('pointerdown', event => {
+        if (event.pointerType === 'touch') return;
         if (!canvas.classList.contains('is-drawable')) return;
-        if (!['pen', 'pen-fountain', 'eraser', 'highlighter', 'shapes', 'sticky', 'objects'].includes(activeEditorTool)) return;
+        if (!['pen', 'pencil', 'pen-fountain', 'eraser', 'highlighter', 'shapes', 'sticky', 'objects'].includes(activeEditorTool)) return;
         activeDrawing = true;
         canvas.setPointerCapture(event.pointerId);
         const point = pointFromEvent(event);
@@ -863,28 +1599,18 @@ function attachEditorInteractions() {
             finishDrawing();
             return;
         }
-        context.beginPath();
-        context.moveTo(point.x, point.y);
-        context.lineCap = 'round';
-        context.lineJoin = 'round';
-        context.globalCompositeOperation = activeEditorTool === 'eraser' ? 'destination-out' : 'source-over';
-        context.strokeStyle = activeEditorTool === 'highlighter' ? `${activePenColor}66` : activePenColor;
-        context.lineWidth = activeEditorTool === 'eraser' ? activePenWidth * 4 : activePenWidth;
-        if (activeEditorTool === 'eraser') {
-            context.beginPath();
-            context.arc(point.x, point.y, context.lineWidth / 2, 0, Math.PI * 2);
-            context.fill();
-            context.beginPath();
-            context.moveTo(point.x, point.y);
-        }
+        const pressure = event.pointerType === 'pen' ? Math.max(event.pressure || 0.1, 0.05) : 0.5;
+        currentStrokePoints = [[point.x, point.y, pressure]];
+        renderFreehandStroke(false, event.pointerType);
     });
     canvas.addEventListener('pointermove', event => {
-        if (!activeDrawing) return;
+        if (!activeDrawing || event.pointerType === 'touch') return;
         const point = pointFromEvent(event);
         if (activeEditorTool === 'shapes') drawingEndPoint = point;
         if (activeEditorTool === 'shapes') return;
-        context.lineTo(point.x, point.y);
-        context.stroke();
+        const pressure = event.pointerType === 'pen' ? Math.max(event.pressure || 0.1, 0.05) : 0.5;
+        currentStrokePoints.push([point.x, point.y, pressure]);
+        renderFreehandStroke(false, event.pointerType);
     });
     function finishDrawing() {
         if (!activeDrawing) return;
@@ -899,20 +1625,25 @@ function attachEditorInteractions() {
                 x2: drawingEndPoint.x,
                 y2: drawingEndPoint.y,
                 color: activePenColor,
-                strokeWidth: activePenWidth
+                strokeWidth: activeShapeWidth
             });
             selectedShapeId = shapeId;
             renderNotebookShapes();
         }
         activeDrawing = false;
+        currentStrokePoints = [];
         drawingStartPoint = null;
         drawingEndPoint = null;
         drawingSnapshot = null;
         context.globalCompositeOperation = 'source-over';
+        context.globalAlpha = 1;
         persistNotebookPages();
         if (completedTool === 'shapes' || completedTool === 'objects') setEditorTool('lasso');
     }
-    canvas.addEventListener('pointerup', finishDrawing);
+    canvas.addEventListener('pointerup', event => {
+        if (currentStrokePoints.length) renderFreehandStroke(true, event.pointerType);
+        finishDrawing();
+    });
     canvas.addEventListener('pointercancel', finishDrawing);
 
     const shapesSvg = document.getElementById('notebookShapes');
@@ -980,36 +1711,45 @@ function attachEditorInteractions() {
 
     editor.querySelectorAll('[data-pen-color]').forEach(button => {
         button.addEventListener('click', () => {
-            activePenColor = button.dataset.penColor;
-            editor.querySelectorAll('[data-pen-color]').forEach(colorButton => colorButton.classList.toggle('is-color-selected', colorButton === button));
-            if (activeEditorTool === 'lasso') updateSelectedShape({ color: activePenColor });
+            pendingPenSettings.color = button.dataset.penColor;
+            document.getElementById('editorColorPicker').value = pendingPenSettings.color;
+            editor.querySelectorAll('[data-pen-color]').forEach(colorButton => {
+                colorButton.classList.toggle('is-color-selected', colorButton === button);
+            });
         });
     });
-    editor.querySelectorAll('[data-shape-kind]').forEach(button => {
+    editor.querySelectorAll('[data-pen-choice]').forEach(button => {
         button.addEventListener('click', () => {
-            activeShape = button.dataset.shapeKind;
-            setEditorTool('shapes');
-            editor.querySelectorAll('[data-shape-kind]').forEach(shapeButton => shapeButton.classList.toggle('is-width-selected', shapeButton === button));
+            const tool = button.dataset.penChoice;
+            stagePenChoice(tool);
+            document.getElementById('penSettingsPanel').classList.add('is-open');
         });
     });
-    editor.querySelectorAll('[data-object-emoji]').forEach(button => {
-        button.addEventListener('click', () => {
-            activeObjectEmoji = button.dataset.objectEmoji;
-            setEditorTool('objects');
-            editor.querySelectorAll('[data-object-emoji]').forEach(objectButton => objectButton.classList.toggle('is-width-selected', objectButton === button));
-        });
+    document.getElementById('applyPenSelection').addEventListener('click', () => {
+        penSettings[pendingPenTool] = { ...pendingPenSettings };
+        setEditorTool(pendingPenTool);
+        closeToolbarDropdowns();
+    });
+    document.getElementById('shapeKindSelect').addEventListener('change', event => {
+        activeShape = event.target.value;
+        setEditorTool('shapes');
+    });
+    document.getElementById('shapeWidthSelect').addEventListener('change', event => {
+        activeShapeWidth = Number(event.target.value);
+    });
+    document.getElementById('objectEmojiSelect').addEventListener('change', event => {
+        activeObjectEmoji = event.target.value;
+        setEditorTool('objects');
     });
     document.getElementById('editorColorPicker').addEventListener('input', event => {
-        activePenColor = event.target.value;
+        pendingPenSettings.color = event.target.value;
         editor.querySelectorAll('[data-pen-color]').forEach(colorButton => colorButton.classList.remove('is-color-selected'));
-        if (activeEditorTool === 'lasso') updateSelectedShape({ color: activePenColor });
     });
-    editor.querySelectorAll('[data-pen-width]').forEach(button => {
-        button.addEventListener('click', () => {
-            activePenWidth = Number(button.dataset.penWidth);
-            editor.querySelectorAll('[data-pen-width]').forEach(widthButton => widthButton.classList.toggle('is-width-selected', widthButton === button));
-            if (activeEditorTool === 'lasso') updateSelectedShape({ strokeWidth: activePenWidth });
-        });
+    document.getElementById('penWidthSelect').addEventListener('change', event => {
+        pendingPenSettings.width = Number(event.target.value);
+    });
+    document.getElementById('eraserWidthSelect').addEventListener('change', event => {
+        activeEraserWidth = Number(event.target.value);
     });
     editor.querySelectorAll('[data-toolbar-toggle]').forEach(input => {
         input.addEventListener('change', () => {
@@ -1062,6 +1802,341 @@ function attachEditorInteractions() {
     setEditorTool(activeEditorTool);
 }
 
+function fileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(reader.error || new Error('Datei konnte nicht gelesen werden.'));
+        reader.onload = () => resolve(String(reader.result));
+        reader.readAsDataURL(file);
+    });
+}
+
+function getImageOrientation(dataUrl) {
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onerror = () => reject(new Error('Ein Seitenbild im Archiv konnte nicht geöffnet werden.'));
+        image.onload = () => resolve(image.naturalWidth >= image.naturalHeight ? 'landscape' : 'portrait');
+        image.src = dataUrl;
+    });
+}
+
+async function renderPdfPages(data) {
+    if (!window.pdfjsLib) throw new Error('PDF.js ist nicht verfügbar. Bitte lade die Seite online neu.');
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(data) }).promise;
+    const pages = [];
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        const pdfPage = await pdf.getPage(pageNumber);
+        const baseViewport = pdfPage.getViewport({ scale: 1 });
+        const scale = Math.min(1.75, 1800 / Math.max(baseViewport.width, baseViewport.height));
+        const viewport = pdfPage.getViewport({ scale });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.ceil(viewport.width);
+        canvas.height = Math.ceil(viewport.height);
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('PDF-Seite konnte nicht gerendert werden.');
+        await pdfPage.render({ canvasContext: context, viewport }).promise;
+        pages.push({
+            content: '',
+            drawing: '',
+            shapes: [],
+            backgroundDataUrl: canvas.toDataURL('image/png'),
+            orientation: viewport.width >= viewport.height ? 'landscape' : 'portrait'
+        });
+        pdfPage.cleanup();
+    }
+    return pages;
+}
+
+async function extractGoodnotesPages(file) {
+    if (!window.JSZip) throw new Error('JSZip ist nicht verfügbar. Bitte lade die Seite online neu.');
+    const archive = await JSZip.loadAsync(file);
+
+    async function extractArchivePages(zip, depth) {
+        const files = Object.values(zip.files).filter(entry => !entry.dir);
+        const pdfFiles = files
+            .filter(entry => /\.pdf$/i.test(entry.name) && !/preview|thumbnail/i.test(entry.name))
+            .sort((first, second) => first.name.localeCompare(second.name, undefined, { numeric: true }));
+        if (pdfFiles.length) {
+            const pages = [];
+            for (const entry of pdfFiles) {
+                pages.push(...await renderPdfPages(await entry.async('uint8array')));
+            }
+            return pages;
+        }
+
+        const imageFiles = files
+            .filter(entry => /\.(png|jpe?g|webp)$/i.test(entry.name) && !/preview|thumbnail|cover/i.test(entry.name))
+            .sort((first, second) => first.name.localeCompare(second.name, undefined, { numeric: true }));
+        if (imageFiles.length) {
+            const pages = [];
+            for (const entry of imageFiles) {
+                const extension = entry.name.split('.').pop().toLowerCase();
+                const mimeType = extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg' : `image/${extension}`;
+                const blob = new Blob([await entry.async('uint8array')], { type: mimeType });
+                const backgroundDataUrl = await fileAsDataUrl(blob);
+                pages.push({
+                    content: '',
+                    drawing: '',
+                    shapes: [],
+                    backgroundDataUrl,
+                    orientation: await getImageOrientation(backgroundDataUrl)
+                });
+            }
+            return pages;
+        }
+
+        if (depth < 2) {
+            const nestedArchives = files.filter(entry => /\.(zip|goodnotes)$/i.test(entry.name));
+            for (const entry of nestedArchives) {
+                const nested = await JSZip.loadAsync(await entry.async('uint8array'));
+                const pages = await extractArchivePages(nested, depth + 1);
+                if (pages.length) return pages;
+            }
+        }
+        return [];
+    }
+
+    const pages = await extractArchivePages(archive, 0);
+    if (!pages.length) {
+        throw new Error('In der Goodnotes-Datei wurde weder ein Hintergrund-PDF noch eine unterstützte Seitenbildstruktur gefunden.');
+    }
+    return pages;
+}
+
+async function importDocumentFile(file) {
+    const extension = file.name.split('.').pop().toLowerCase();
+    let pages;
+    if (extension === 'pdf') {
+        pages = await renderPdfPages(await file.arrayBuffer());
+    } else if (extension === 'goodnotes' || extension === 'zip') {
+        pages = await extractGoodnotesPages(file);
+    } else {
+        throw new Error('Bitte wähle eine PDF- oder Goodnotes-Datei aus.');
+    }
+
+    await ensureNotebookStorage();
+    let id = Date.now();
+    while (notebooks.some(notebook => notebook.id === id)) id += 1;
+    const title = file.name.replace(/\.(pdf|goodnotes|zip)$/i, '').trim() || 'Importiertes Dokument';
+    const notebook = {
+        id,
+        title,
+        template: 'PDF',
+        pattern: '',
+        paperColor: 'weiss',
+        orientation: pages[0].orientation,
+        cover: 'cover-simple',
+        pageCount: pages.length,
+        pages,
+        updatedAt: new Date().toISOString()
+    };
+    notebooks.push(notebook);
+    try {
+        await notebookDb.pages.bulkPut(pages.map((page, pageIndex) => ({
+            ...page,
+            notebookId: String(id),
+            pageIndex
+        })));
+        saveNotebookMetadata(notebook.id);
+    } catch (error) {
+        notebooks = notebooks.filter(item => item.id !== id);
+        throw new Error(`Das Dokument konnte nicht lokal gespeichert werden: ${error.message || error}`);
+    }
+    loadNotebooksToDashboard();
+    await openNotebook(id);
+}
+
+function dataUrlToBytes(dataUrl) {
+    const match = /^data:([^;,]+);base64,(.+)$/s.exec(dataUrl);
+    if (!match) throw new Error('Ein Bildobjekt hat ein ungültiges Datenformat.');
+    const binary = atob(match[2]);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+    return { mimeType: match[1], bytes };
+}
+
+function imageDataUrlAsPng(dataUrl) {
+    return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onerror = () => reject(new Error('Ein Bild konnte für den PDF-Export nicht dekodiert werden.'));
+        image.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = image.naturalWidth;
+            canvas.height = image.naturalHeight;
+            const context = canvas.getContext('2d');
+            if (!context) {
+                reject(new Error('Ein Bild konnte für den PDF-Export nicht vorbereitet werden.'));
+                return;
+            }
+            context.drawImage(image, 0, 0);
+            resolve(canvas.toDataURL('image/png'));
+        };
+        image.src = dataUrl;
+    });
+}
+
+function textToPngDataUrl(text, fontSize) {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = Math.max(128, Math.ceil(fontSize * 2));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Objekt konnte nicht für den PDF-Export vorbereitet werden.');
+    context.font = `${Math.ceil(fontSize * 1.5)}px Arial, sans-serif`;
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(text, canvas.width / 2, canvas.height / 2);
+    return canvas.toDataURL('image/png');
+}
+
+function wrapPdfText(text, font, fontSize, maxWidth) {
+    const lines = [];
+    String(text || '').split(/\r?\n/).forEach(paragraph => {
+        let line = '';
+        for (const word of paragraph.split(/\s+/).filter(Boolean)) {
+            const candidate = line ? `${line} ${word}` : word;
+            if (line && font.widthOfTextAtSize(candidate, fontSize) > maxWidth) {
+                lines.push(line);
+                line = word;
+            } else {
+                line = candidate;
+            }
+        }
+        lines.push(line);
+    });
+    return lines;
+}
+
+async function exportNotebookPdf() {
+    try {
+        if (!window.PDFLib) throw new Error('pdf-lib ist nicht verfügbar. Bitte lade die Seite online neu.');
+        persistNotebookPages();
+        const notebook = notebooks.find(item => item.id === currentNotebookId);
+        if (!notebook) throw new Error('Das aktuelle Notizbuch wurde nicht gefunden.');
+        const pages = getNotebookPages(notebook);
+        const pdf = await PDFLib.PDFDocument.create();
+        pdf.setTitle(notebook.title || 'MyNotes');
+        const font = await pdf.embedFont(PDFLib.StandardFonts.Helvetica);
+
+        for (const pageData of pages) {
+            const landscape = pageData.orientation
+                ? pageData.orientation === 'landscape'
+                : notebook.orientation === 'landscape';
+            const width = landscape ? 842 : 595;
+            const height = landscape ? 595 : 842;
+            const page = pdf.addPage([width, height]);
+            let pageBackground = null;
+            if (pageData.backgroundDataUrl) {
+                let imageData = dataUrlToBytes(pageData.backgroundDataUrl);
+                if (!['image/png', 'image/jpeg'].includes(imageData.mimeType)) {
+                    imageData = dataUrlToBytes(await imageDataUrlAsPng(pageData.backgroundDataUrl));
+                }
+                pageBackground = imageData.mimeType === 'image/jpeg'
+                    ? await pdf.embedJpg(imageData.bytes)
+                    : await pdf.embedPng(imageData.bytes);
+                page.drawImage(pageBackground, { x: 0, y: 0, width, height });
+            } else {
+                page.drawRectangle({ x: 0, y: 0, width, height, color: PDFLib.rgb(1, 1, 1) });
+            }
+
+            const pageElement = document.getElementById('notebookPage');
+            const bounds = pageElement?.getBoundingClientRect();
+            const sourceWidth = bounds?.width || (landscape ? 1050 : 740);
+            const sourceHeight = bounds?.height || (landscape ? 740 : 1050);
+            const scaleX = width / sourceWidth;
+            const scaleY = height / sourceHeight;
+            const fontSize = 14 * scaleX;
+            const textLines = wrapPdfText(pageData.content, font, fontSize, width - 80);
+            textLines.forEach((line, index) => {
+                const y = height - 42 * scaleY - index * fontSize * 1.45;
+                if (y > 16) page.drawText(line, { x: 40 * scaleX, y, size: fontSize, font, color: PDFLib.rgb(0.12, 0.16, 0.22) });
+            });
+
+            if (pageData.drawing) {
+                const drawing = dataUrlToBytes(pageData.drawing);
+                const image = drawing.mimeType === 'image/jpeg'
+                    ? await pdf.embedJpg(drawing.bytes)
+                    : await pdf.embedPng(drawing.bytes);
+                page.drawImage(image, { x: 0, y: 0, width, height });
+            }
+
+            for (const shape of pageData.shapes || []) {
+                const minX = Math.min(shape.x1, shape.x2);
+                const minY = Math.min(shape.y1, shape.y2);
+                const shapeWidth = Math.max(Math.abs(shape.x2 - shape.x1), 1);
+                const shapeHeight = Math.max(Math.abs(shape.y2 - shape.y1), 1);
+                const borderWidth = Math.max(Number(shape.strokeWidth) || 2, 1) * scaleX;
+                if (shape.kind === 'emoji') {
+                    const emoji = dataUrlToBytes(textToPngDataUrl(shape.emoji || '', Math.min(shapeWidth, shapeHeight) * scaleX));
+                    const image = await pdf.embedPng(emoji.bytes);
+                    page.drawImage(image, {
+                        x: minX * scaleX,
+                        y: height - (minY + shapeHeight) * scaleY,
+                        width: shapeWidth * scaleX,
+                        height: shapeHeight * scaleY
+                    });
+                } else if (shape.kind === 'image' && shape.src) {
+                    let imageData = dataUrlToBytes(shape.src);
+                    if (!['image/png', 'image/jpeg'].includes(imageData.mimeType)) {
+                        imageData = dataUrlToBytes(await imageDataUrlAsPng(shape.src));
+                    }
+                    const image = imageData.mimeType === 'image/jpeg'
+                        ? await pdf.embedJpg(imageData.bytes)
+                        : await pdf.embedPng(imageData.bytes);
+                    page.drawImage(image, {
+                        x: minX * scaleX,
+                        y: height - (minY + shapeHeight) * scaleY,
+                        width: shapeWidth * scaleX,
+                        height: shapeHeight * scaleY
+                    });
+                } else {
+                    const color = shape.color || '#1f2937';
+                    const rgb = /^#?([0-9a-f]{6})$/i.exec(color);
+                    const strokeColor = rgb
+                        ? PDFLib.rgb(parseInt(rgb[1].slice(0, 2), 16) / 255, parseInt(rgb[1].slice(2, 4), 16) / 255, parseInt(rgb[1].slice(4, 6), 16) / 255)
+                        : PDFLib.rgb(0.12, 0.16, 0.22);
+                    if (shape.kind === 'line') {
+                        page.drawLine({
+                            start: { x: shape.x1 * scaleX, y: height - shape.y1 * scaleY },
+                            end: { x: shape.x2 * scaleX, y: height - shape.y2 * scaleY },
+                            thickness: borderWidth,
+                            color: strokeColor
+                        });
+                    } else if (shape.kind === 'circle') {
+                        page.drawEllipse({
+                            x: (minX + shapeWidth / 2) * scaleX,
+                            y: height - (minY + shapeHeight / 2) * scaleY,
+                            xScale: shapeWidth * scaleX / 2,
+                            yScale: shapeHeight * scaleY / 2,
+                            borderColor: strokeColor,
+                            borderWidth
+                        });
+                    } else {
+                        page.drawRectangle({
+                            x: minX * scaleX,
+                            y: height - (minY + shapeHeight) * scaleY,
+                            width: shapeWidth * scaleX,
+                            height: shapeHeight * scaleY,
+                            borderColor: strokeColor,
+                            borderWidth
+                        });
+                    }
+                }
+            }
+        }
+
+        const bytes = await pdf.save();
+        const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${(notebook.title || 'MyNotes').replace(/[<>:"/\\|?*]+/g, '_')}.pdf`;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+        console.error('PDF-Export fehlgeschlagen:', error);
+        alert(error instanceof Error ? error.message : 'Das Dokument konnte nicht als PDF exportiert werden.');
+    }
+}
+
 function runEditorAction(action) {
     const notebook = notebooks.find(item => item.id === currentNotebookId);
     if (!notebook) return;
@@ -1069,6 +2144,8 @@ function runEditorAction(action) {
     else if (action === 'duplicate-page') addNotebookPage(true);
     else if (action === 'previous-page') showNotebookPage(currentPageIndex - 1);
     else if (action === 'next-page') showNotebookPage(currentPageIndex + 1);
+    else if (action === 'export-pdf') void exportNotebookPdf();
+    else if (action === 'import-document') document.getElementById('documentImportInput')?.click();
     else if (action === 'clear-page') clearNotebookContent(currentNotebookId);
     else if (action === 'delete-notebook') deleteNotebook(currentNotebookId);
     else if (action === 'save') saveNotebookContent(currentNotebookId);
@@ -1134,7 +2211,7 @@ function runEditorAction(action) {
     else if (action === 'bookmark') {
         notebook.bookmarks = notebook.bookmarks || [];
         if (!notebook.bookmarks.includes(currentPageIndex)) notebook.bookmarks.push(currentPageIndex);
-        localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
+        saveNotebookMetadata(notebook.id);
         closeMenu();
     } else if (action === 'change-template') {
         alert(`Vorlage: ${notebook.template}`);
@@ -1142,7 +2219,7 @@ function runEditorAction(action) {
     } else if (action === 'rotate-page') {
         const pageIndex = currentPageIndex;
         notebook.orientation = notebook.orientation === 'landscape' ? 'portrait' : 'landscape';
-        localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
+        saveNotebookMetadata(notebook.id);
         closeMenu();
         openNotebook(notebook.id);
         showNotebookPage(pageIndex);
@@ -1155,8 +2232,27 @@ function runEditorAction(action) {
     }
 }
 
-function openNotebook(id) {
-    const nb = notebooks.find(item => item.id === id);
+async function openNotebook(id) {
+    let nb = notebooks.find(item => item.id === id);
+    if (!nb) return;
+    try {
+        await ensureNotebookStorage();
+        const storedPages = await notebookDb.pages
+            .where('notebookId')
+            .equals(String(id))
+            .sortBy('pageIndex');
+        if (storedPages.length) {
+            nb.pages = storedPages.map(({ notebookId, pageIndex, ...page }) => page);
+        } else {
+            const pages = getNotebookPages(nb);
+            await Promise.all(pages.map((page, pageIndex) => writeNotebookPage(id, pageIndex, page)));
+        }
+        nb.pageCount = getNotebookPages(nb).length;
+    } catch (error) {
+        reportNotebookStorageError(error);
+        return;
+    }
+    nb = notebooks.find(item => item.id === id);
     if (!nb) return;
     currentNotebookId = id;
     currentPageIndex = 0;
@@ -1304,6 +2400,12 @@ function openNotebook(id) {
                             <button onclick="saveNotebookContent(${nb.id})" class="w-full text-left px-4 py-2.5 hover:bg-slate-100 flex items-center gap-2.5 text-slate-700 font-medium">
                                 <i data-lucide="save" class="w-4 h-4 text-blue-600"></i> Notizen speichern
                             </button>
+                            <button data-editor-action="export-pdf" class="w-full text-left px-4 py-2.5 hover:bg-slate-100 flex items-center gap-2.5 text-slate-700 font-medium">
+                                <i data-lucide="file-down" class="w-4 h-4 text-blue-600"></i> Als PDF exportieren
+                            </button>
+                            <button data-editor-action="import-document" class="w-full text-left px-4 py-2.5 hover:bg-slate-100 flex items-center gap-2.5 text-slate-700 font-medium">
+                                <i data-lucide="file-up" class="w-4 h-4 text-blue-600"></i> PDF / Goodnotes importieren
+                            </button>
                         </div>
 
                     </div>
@@ -1353,30 +2455,85 @@ function openNotebook(id) {
                     <button data-editor-action="redo" aria-label="Wiederholen"><i data-lucide="redo-2"></i></button>
                 </div>
                 <div class="editor-floating-toolbar">
-                    <button class="floating-tool" data-editor-tool="lasso" title="Auswahl: Formen bearbeiten" aria-label="Auswahl"><i data-lucide="mouse-pointer-2"></i></button>
-                    <button class="floating-tool" data-editor-action="delete-selected-shape" aria-label="Ausgewählte Form löschen" title="Ausgewählte Form löschen" disabled><i data-lucide="trash-2"></i></button>
-                    <button class="floating-tool is-active" data-editor-tool="pen" title="Kugelschreiber"><i data-lucide="pen-tool"></i><i data-lucide="chevron-down" class="editor-caret"></i></button>
-                    <button class="floating-tool" data-editor-tool="pen-fountain" title="Füllfederhalter"><i data-lucide="pen-line"></i></button>
-                    <button class="floating-tool" data-editor-tool="highlighter" title="Textmarker"><i data-lucide="highlighter"></i></button>
-                    <button class="floating-tool" data-editor-tool="eraser" title="Radierer"><i data-lucide="eraser"></i></button>
-                    <button class="floating-tool" data-editor-tool="shapes" title="Formen"><i data-lucide="shapes"></i></button>
-                    <span class="toolbar-separator"></span>
-                    <button class="pen-width is-width-selected" data-shape-kind="line" aria-label="Gerade Linie">╱</button>
-                    <button class="pen-width" data-shape-kind="rectangle" aria-label="Rechteck">□</button>
-                    <button class="pen-width" data-shape-kind="circle" aria-label="Kreis">○</button>
-                    <span class="toolbar-separator"></span>
-                    <button class="pen-width" data-object-emoji="⭐" aria-label="Stern">⭐</button>
-                    <button class="pen-width" data-object-emoji="❤️" aria-label="Herz">❤️</button>
-                    <button class="pen-width" data-object-emoji="😊" aria-label="Smiley">😊</button>
-                    <span class="toolbar-separator"></span>
-                    <button class="pen-width" data-pen-width="1" aria-label="Dünne Linie"><span></span></button>
-                    <button class="pen-width is-width-selected" data-pen-width="3" aria-label="Mittlere Linie"><span></span></button>
-                    <button class="pen-width" data-pen-width="5" aria-label="Dicke Linie"><span></span></button>
-                    <span class="toolbar-separator"></span>
-                    <button class="pen-color is-color-selected" data-pen-color="#111111" aria-label="Schwarz"></button>
-                    <button class="pen-color" data-pen-color="#1685f8" aria-label="Blau"></button>
-                    <button class="pen-color pen-color-white" data-pen-color="#ffffff" aria-label="Weiß"></button>
-                    <button class="floating-tool" data-editor-action="choose-color" title="Weitere Farben"><i data-lucide="circle-plus"></i></button>
+                    <button class="floating-tool toolbar-delete-tool" data-editor-action="delete-selected-shape" aria-label="Ausgewählte Form löschen" title="Ausgewählte Form löschen" disabled><i data-lucide="trash-2"></i></button>
+                    <div class="toolbar-dropdown-group">
+                        <button id="penToolTrigger" class="floating-tool" data-editor-tool="pen" data-toolbar-group="pen" data-toolbar-dropdown-toggle="penOptions" aria-label="Stift: Kugelschreiber" aria-expanded="false" aria-controls="penOptions" title="Kugelschreiber">
+                            <span class="toolbar-pen-icon is-visible" data-pen-icon="pen"><i data-lucide="pen-tool"></i></span>
+                            <span class="toolbar-pen-icon" data-pen-icon="pencil"><i data-lucide="pencil"></i></span>
+                            <span class="toolbar-pen-icon" data-pen-icon="pen-fountain"><i data-lucide="pen-line"></i></span>
+                            <span class="toolbar-pen-icon" data-pen-icon="highlighter"><i data-lucide="highlighter"></i></span>
+                            <i data-lucide="chevron-down" class="editor-caret"></i>
+                        </button>
+                        <div id="penOptions" class="toolbar-dropdown-menu pen-dropdown-menu">
+                            <div class="pen-choice-list" role="group" aria-label="Stift auswählen">
+                                <span class="toolbar-menu-heading">Stifte</span>
+                                <button type="button" class="pen-choice" data-pen-choice="pen" data-pen-label="Kugelschreiber" aria-pressed="true"><i data-lucide="pen-tool"></i><span>Kugelschreiber</span></button>
+                                <button type="button" class="pen-choice" data-pen-choice="pencil" data-pen-label="Bleistift" aria-pressed="false"><i data-lucide="pencil"></i><span>Bleistift</span></button>
+                                <button type="button" class="pen-choice" data-pen-choice="pen-fountain" data-pen-label="Füllfederhalter" aria-pressed="false"><i data-lucide="pen-line"></i><span>Füllfederhalter</span></button>
+                                <button type="button" class="pen-choice" data-pen-choice="highlighter" data-pen-label="Textmarker" aria-pressed="false"><i data-lucide="highlighter"></i><span>Textmarker</span></button>
+                            </div>
+                            <div id="penSettingsPanel" class="pen-settings-panel">
+                                <h3 id="penSettingsTitle">Stifteinstellungen</h3>
+                                <label for="penWidthSelect">Linienstärke</label>
+                                <select id="penWidthSelect" class="toolbar-select" aria-label="Stiftstärke">
+                                    <option value="1">Dünn</option>
+                                    <option value="3" selected>Mittel</option>
+                                    <option value="5">Dick</option>
+                                </select>
+                                <span class="toolbar-popover-divider"></span>
+                                <span class="toolbar-menu-heading">Farbe</span>
+                                <div class="toolbar-color-options" aria-label="Stiftfarbe wählen">
+                                    <button type="button" class="pen-color is-color-selected" data-pen-color="#111111" aria-label="Schwarz"></button>
+                                    <button type="button" class="pen-color" data-pen-color="#1685f8" aria-label="Blau"></button>
+                                    <button type="button" class="pen-color" data-pen-color="#dc2626" aria-label="Rot"></button>
+                                    <button type="button" class="pen-color" data-pen-color="#16a34a" aria-label="Grün"></button>
+                                    <button type="button" class="pen-color pen-color-yellow" data-pen-color="#facc15" aria-label="Gelb"></button>
+                                    <button type="button" class="pen-color pen-color-white" data-pen-color="#ffffff" aria-label="Weiß"></button>
+                                    <button type="button" class="floating-tool toolbar-custom-color" data-editor-action="choose-color" title="Weitere Farben" aria-label="Weitere Farben"><i data-lucide="circle-plus"></i></button>
+                                </div>
+                                <button id="applyPenSelection" type="button" class="toolbar-apply-pen">Übernehmen</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="toolbar-dropdown-group">
+                        <button class="floating-tool" data-editor-tool="eraser" data-toolbar-dropdown-toggle="eraserOptions" aria-label="Radierer" aria-expanded="false" aria-controls="eraserOptions" title="Radierer"><i data-lucide="eraser"></i><i data-lucide="chevron-down" class="editor-caret"></i></button>
+                        <div id="eraserOptions" class="toolbar-dropdown-menu">
+                            <label for="eraserWidthSelect">Radierergröße</label>
+                            <select id="eraserWidthSelect" class="toolbar-select" aria-label="Radierergröße">
+                                <option value="1">Klein</option>
+                                <option value="3" selected>Mittel</option>
+                                <option value="5">Groß</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="toolbar-dropdown-group">
+                        <button class="floating-tool" data-editor-tool="shapes" data-toolbar-dropdown-toggle="shapeOptions" aria-label="Formen" aria-expanded="false" aria-controls="shapeOptions" title="Formen"><i data-lucide="shapes"></i><i data-lucide="chevron-down" class="editor-caret"></i></button>
+                        <div id="shapeOptions" class="toolbar-dropdown-menu">
+                            <label for="shapeKindSelect">Form</label>
+                            <select id="shapeKindSelect" class="toolbar-select" aria-label="Form auswählen">
+                                <option value="line">Linie</option>
+                                <option value="rectangle" selected>Rechteck</option>
+                                <option value="circle">Kreis</option>
+                            </select>
+                            <label for="shapeWidthSelect">Linienstärke</label>
+                            <select id="shapeWidthSelect" class="toolbar-select" aria-label="Linienstärke der Form">
+                                <option value="1">Dünn</option>
+                                <option value="3" selected>Mittel</option>
+                                <option value="5">Dick</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="toolbar-dropdown-group">
+                        <button class="floating-tool" data-editor-tool="objects" data-toolbar-dropdown-toggle="objectOptions" aria-label="Smileys" aria-expanded="false" aria-controls="objectOptions" title="Smileys"><i data-lucide="smile"></i><i data-lucide="chevron-down" class="editor-caret"></i></button>
+                        <div id="objectOptions" class="toolbar-dropdown-menu">
+                            <label for="objectEmojiSelect">Smiley auswählen</label>
+                            <select id="objectEmojiSelect" class="toolbar-select" aria-label="Smiley auswählen">
+                                <option value="⭐" selected>Stern</option>
+                                <option value="❤️">Herz</option>
+                                <option value="😊">Smiley</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -1389,6 +2546,7 @@ function openNotebook(id) {
                 </aside>
                 <div class="editor-canvas-area">
                     <div id="notebookPage" class="notebook-page ${pageWidthClass} ${paperColorClass} ${paperPatternClass}">
+                        <img id="notebookBackground" class="notebook-background hidden" alt="">
                         <textarea id="notebookContent" class="${paperTextClass}" aria-label="Notizen auf dieser Seite"></textarea>
                         <canvas id="notebookDrawing" aria-label="Zeichenfläche"></canvas>
                         <svg id="notebookShapes" aria-label="Formen auf dieser Seite"></svg>
@@ -1402,6 +2560,7 @@ function openNotebook(id) {
         </div>
     `;
     document.getElementById('notebookContent').value = pages[0].content || '';
+    setNotebookBackground(pages[0]);
     document.getElementById('menuPageCounter').textContent = `1 von ${pages.length}`;
     attachEditorInteractions();
     restorePageDrawing(pages[0].drawing || '');
@@ -1448,7 +2607,7 @@ function renameNotebookPrompt(id) {
             if (item.id === id) item.title = newTitle.trim();
             return item;
         });
-        localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
+        saveNotebookMetadata(id);
         openNotebook(id);
     }
 }
@@ -1478,8 +2637,10 @@ function clearNotebookContent(id) {
 function deleteNotebook(id) {
     closeMenu();
     if (confirm("Möchtest du dieses Notizbuch wirklich in den Papierkorb verschieben?")) {
+        notebookTombstones[String(id)] = new Date().toISOString();
+        localStorage.setItem('mynotes_deleted_notebooks', JSON.stringify(notebookTombstones));
         notebooks = notebooks.filter(item => item.id !== id);
-        localStorage.setItem('mynotes_notebooks', JSON.stringify(notebooks));
+        saveNotebookMetadata();
         location.reload();
     }
 }
@@ -1525,6 +2686,7 @@ function loadNotebooksToDashboard() {
 }
 
 loadNotebooksToDashboard();
+void initializeSupabaseCloud();
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
