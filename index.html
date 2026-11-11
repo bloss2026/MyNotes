@@ -139,8 +139,8 @@
         <section class="cloud-auth-dialog" role="dialog" aria-modal="true" aria-labelledby="cloudAuthTitle">
             <div class="cloud-auth-heading">
                 <div>
-                    <h2 id="cloudAuthTitle">Supabase Cloud</h2>
-                    <p id="cloudAuthMessage">Melde dich an, um deine Notizbücher zu synchronisieren.</p>
+                    <h2 id="cloudAuthTitle">Bei MyNotes anmelden</h2>
+                    <p id="cloudAuthMessage">Melde dich an oder erstelle ein Konto, um fortzufahren.</p>
                 </div>
                 <button id="cloudAuthClose" type="button" class="cloud-auth-close" aria-label="Schließen">×</button>
             </div>
@@ -149,6 +149,10 @@
                 <input id="cloudEmail" type="email" autocomplete="email" required>
                 <label for="cloudPassword">Passwort</label>
                 <input id="cloudPassword" type="password" autocomplete="current-password" required>
+                <label class="cloud-remember-option">
+                    <input id="cloudKeepSignedIn" type="checkbox" checked>
+                    <span>Angemeldet bleiben</span>
+                </label>
                 <div class="cloud-auth-actions">
                     <button id="cloudSignIn" type="button">Anmelden</button>
                     <button id="cloudSignUp" type="button">Konto erstellen</button>

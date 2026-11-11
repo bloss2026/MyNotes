@@ -1296,7 +1296,7 @@ textarea:focus-visible {
 .cloud-auth-heading h2 {
     margin: 0;
     color: #1e293b;
-    font-size: 18px;
+    font-size: 22px;
     font-weight: 700;
 }
 
@@ -1304,7 +1304,7 @@ textarea:focus-visible {
 .cloud-account-panel p {
     margin: 5px 0 0;
     color: #64748b;
-    font-size: 13px;
+    font-size: 15px;
     line-height: 1.5;
 }
 
@@ -1327,7 +1327,7 @@ textarea:focus-visible {
 .cloud-auth-form label {
     margin-top: 5px;
     color: #475569;
-    font-size: 12px;
+    font-size: 14px;
     font-weight: 600;
 }
 
@@ -1338,7 +1338,23 @@ textarea:focus-visible {
     border-radius: 10px;
     background: #fff;
     color: #1e293b;
-    font-size: 14px;
+    font-size: 16px;
+}
+
+.cloud-auth-form .cloud-remember-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    font-weight: 500;
+}
+
+.cloud-auth-form .cloud-remember-option input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+    accent-color: #2b59a2;
 }
 
 .cloud-auth-actions,
@@ -1356,7 +1372,7 @@ textarea:focus-visible {
     border-radius: 10px;
     background: #2b59a2;
     color: #fff;
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 600;
 }
 

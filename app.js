@@ -196,10 +196,24 @@ let selectedCover = "Einfach";
 let selectedOrientation = "portrait";
 let notebooks = JSON.parse(localStorage.getItem('mynotes_notebooks')) || [];
 let cloudClient = null;
+let cloudClientPersistence = null;
+let cloudAuthSubscription = null;
 let cloudSession = null;
+let cloudLoginRequired = false;
 let cloudSyncTask = null;
 let cloudSyncTimer = null;
 let cloudSyncSuppression = 0;
+const cloudAuthStorage = {
+    getItem(key) {
+        return (cloudClientPersistence ? window.localStorage : window.sessionStorage).getItem(key);
+    },
+    setItem(key, value) {
+        return (cloudClientPersistence ? window.localStorage : window.sessionStorage).setItem(key, value);
+    },
+    removeItem(key) {
+        return (cloudClientPersistence ? window.localStorage : window.sessionStorage).removeItem(key);
+    }
+};
 let notebookTombstones = {};
 try {
     notebookTombstones = JSON.parse(localStorage.getItem('mynotes_deleted_notebooks')) || {};
@@ -297,7 +311,13 @@ function openCloudAuthModal() {
 }
 
 function closeCloudAuthModal() {
+    if (cloudLoginRequired) return;
     document.getElementById('cloudAuthModal')?.classList.add('hidden');
+}
+
+function setCloudLoginRequired(required) {
+    cloudLoginRequired = required;
+    document.getElementById('cloudAuthClose')?.classList.toggle('hidden', required);
 }
 
 function updateCloudAccountUi(session) {
@@ -309,6 +329,41 @@ function updateCloudAccountUi(session) {
     loginForm?.classList.toggle('hidden', Boolean(session));
     accountPanel?.classList.toggle('hidden', !session);
     if (accountEmail) accountEmail.textContent = session?.user?.email || '';
+}
+
+function createSupabaseClient(keepSignedIn) {
+    const config = window.MYNOTES_SUPABASE_CONFIG;
+    cloudClientPersistence = keepSignedIn;
+    cloudClient = window.supabase.createClient(config.url, config.publishableKey, {
+        auth: {
+            persistSession: true,
+            storage: cloudAuthStorage
+        }
+    });
+}
+
+function bindSupabaseAuthState() {
+    cloudAuthSubscription = cloudClient.auth.onAuthStateChange((_event, session) => {
+        cloudSession = session;
+        updateCloudAccountUi(session);
+        if (session) {
+            setCloudLoginRequired(false);
+            closeCloudAuthModal();
+            setCloudStatus('Angemeldet – Synchronisierung wird gestartet.');
+            window.setTimeout(() => void syncCloudData(), 0);
+        } else {
+            setCloudLoginRequired(true);
+            openCloudAuthModal();
+            setCloudStatus('Bitte melde dich an, um MyNotes zu verwenden.');
+        }
+    }).data.subscription;
+}
+
+async function applyCloudPersistencePreference() {
+    const checkbox = document.getElementById('cloudKeepSignedIn');
+    const keepSignedIn = Boolean(checkbox?.checked);
+    localStorage.setItem('mynotes_keep_signed_in', String(keepSignedIn));
+    cloudClientPersistence = keepSignedIn;
 }
 
 function scheduleCloudSync() {
@@ -328,40 +383,46 @@ async function initializeSupabaseCloud() {
     const config = window.MYNOTES_SUPABASE_CONFIG;
     if (!window.supabase?.createClient || !config?.url || !config?.publishableKey) {
         setCloudStatus('Supabase SDK oder Projektkonfiguration fehlt.');
+        setCloudLoginRequired(true);
+        openCloudAuthModal();
         return;
     }
 
     try {
-        cloudClient = window.supabase.createClient(config.url, config.publishableKey);
+        const savedPreference = localStorage.getItem('mynotes_keep_signed_in');
+        const keepSignedIn = savedPreference === null || savedPreference === 'true';
+        const checkbox = document.getElementById('cloudKeepSignedIn');
+        if (checkbox) checkbox.checked = keepSignedIn;
+        createSupabaseClient(keepSignedIn);
         const { data, error } = await cloudClient.auth.getSession();
         if (error) {
             console.error('Supabase-Sitzung konnte nicht geladen werden:', error);
             setCloudStatus(`Supabase-Anmeldung fehlgeschlagen: ${error.message}`);
+            setCloudLoginRequired(true);
+            updateCloudAccountUi(null);
+            openCloudAuthModal();
+            bindSupabaseAuthState();
             return;
         }
 
         cloudSession = data.session;
         updateCloudAccountUi(cloudSession);
         if (cloudSession) {
+            setCloudLoginRequired(false);
+            closeCloudAuthModal();
             setCloudStatus('Angemeldet – Synchronisierung wird gestartet.');
             void syncCloudData();
         } else {
-            setCloudStatus('Lokale Speicherung aktiv – melde dich für die Cloud-Synchronisierung an.');
+            setCloudLoginRequired(true);
+            setCloudStatus('Bitte melde dich an, um MyNotes zu verwenden.');
+            openCloudAuthModal();
         }
-
-        cloudClient.auth.onAuthStateChange((_event, session) => {
-            cloudSession = session;
-            updateCloudAccountUi(session);
-            if (session) {
-                setCloudStatus('Angemeldet – Synchronisierung wird gestartet.');
-                window.setTimeout(() => void syncCloudData(), 0);
-            } else {
-                setCloudStatus('Abgemeldet – deine lokale Kopie bleibt erhalten.');
-            }
-        });
+        bindSupabaseAuthState();
     } catch (error) {
         console.error('Supabase konnte nicht initialisiert werden:', error);
         setCloudStatus(`Supabase konnte nicht initialisiert werden: ${error.message || error}`);
+        setCloudLoginRequired(true);
+        openCloudAuthModal();
     }
 }
 
@@ -378,6 +439,7 @@ async function submitCloudAuthentication(action) {
     }
     setCloudStatus(action === 'signup' ? 'Konto wird erstellt …' : 'Anmeldung läuft …');
     try {
+        await applyCloudPersistencePreference();
         const response = action === 'signup'
             ? await cloudClient.auth.signUp({ email, password })
             : await cloudClient.auth.signInWithPassword({ email, password });
@@ -393,8 +455,13 @@ async function submitCloudAuthentication(action) {
         cloudSession = response.data.session;
         updateCloudAccountUi(cloudSession);
         if (cloudSession) {
+            setCloudLoginRequired(false);
+            closeCloudAuthModal();
             setCloudStatus('Angemeldet – Synchronisierung wird gestartet.');
             await syncCloudData();
+        } else {
+            setCloudLoginRequired(true);
+            setCloudStatus('Bitte bestätige zuerst den Link in deiner E-Mail und melde dich anschließend an.');
         }
     } catch (error) {
         console.error('Supabase-Anmeldung ist fehlgeschlagen:', error);
