@@ -200,6 +200,7 @@ let cloudClientPersistence = null;
 let cloudAuthSubscription = null;
 let cloudSession = null;
 let cloudLoginRequired = false;
+let cloudSignupInProgress = false;
 let cloudSyncTask = null;
 let cloudSyncTimer = null;
 let cloudSyncSuppression = 0;
@@ -310,6 +311,20 @@ function openCloudAuthModal() {
     document.getElementById('cloudAuthModal')?.classList.remove('hidden');
 }
 
+function setCloudAuthMode(mode) {
+    const signingUp = mode === 'signup';
+    const title = document.getElementById('cloudAuthTitle');
+    const password = document.getElementById('cloudPassword');
+    title.textContent = signingUp ? 'Konto erstellen' : 'Bei MyNotes anmelden';
+    password.autocomplete = signingUp ? 'new-password' : 'current-password';
+    document.querySelector('.cloud-remember-option')?.classList.toggle('hidden', signingUp);
+    document.getElementById('cloudSignIn')?.classList.toggle('hidden', signingUp);
+    document.getElementById('cloudSignUp')?.classList.toggle('hidden', !signingUp);
+    document.getElementById('cloudShowSignUp')?.classList.toggle('hidden', signingUp);
+    document.getElementById('cloudShowSignIn')?.classList.toggle('hidden', !signingUp);
+    setCloudStatus(signingUp ? 'Erstelle ein neues Konto.' : 'Melde dich mit deinem Konto an.');
+}
+
 function closeCloudAuthModal() {
     if (cloudLoginRequired) return;
     document.getElementById('cloudAuthModal')?.classList.add('hidden');
@@ -344,6 +359,7 @@ function createSupabaseClient(keepSignedIn) {
 
 function bindSupabaseAuthState() {
     cloudAuthSubscription = cloudClient.auth.onAuthStateChange((_event, session) => {
+        if (cloudSignupInProgress) return;
         cloudSession = session;
         updateCloudAccountUi(session);
         if (session) {
@@ -440,16 +456,39 @@ async function submitCloudAuthentication(action) {
     setCloudStatus(action === 'signup' ? 'Konto wird erstellt …' : 'Anmeldung läuft …');
     try {
         await applyCloudPersistencePreference();
+        if (action === 'signup') cloudSignupInProgress = true;
         const response = action === 'signup'
             ? await cloudClient.auth.signUp({ email, password })
             : await cloudClient.auth.signInWithPassword({ email, password });
         if (response.error) {
+            cloudSignupInProgress = false;
             console.error('Supabase-Anmeldung fehlgeschlagen:', response.error);
-            setCloudStatus(`Anmeldung fehlgeschlagen: ${response.error.message}`);
+            setCloudStatus(`${action === 'signup' ? 'Registrierung' : 'Anmeldung'} fehlgeschlagen: ${response.error.message}`);
             return;
         }
-        if (action === 'signup' && !response.data.session) {
-            setCloudStatus('Konto erstellt. Bitte bestätige zuerst den Link in deiner E-Mail.');
+        if (action === 'signup') {
+            if (response.data.session) {
+                const { error } = await cloudClient.auth.signOut();
+                if (error) {
+                    cloudSignupInProgress = false;
+                    cloudSession = response.data.session;
+                    updateCloudAccountUi(cloudSession);
+                    setCloudLoginRequired(false);
+                    console.error('Nach der Registrierung konnte die Sitzung nicht beendet werden:', error);
+                    setCloudStatus(`Konto erstellt, aber die Anmeldung konnte nicht vorbereitet werden: ${error.message}`);
+                    return;
+                }
+            }
+            cloudSignupInProgress = false;
+            cloudSession = null;
+            updateCloudAccountUi(null);
+            setCloudLoginRequired(true);
+            setCloudAuthMode('signin');
+            openCloudAuthModal();
+            document.getElementById('cloudPassword').value = '';
+            setCloudStatus(response.data.session
+                ? 'Konto erstellt. Melde dich jetzt mit deinen Zugangsdaten an.'
+                : 'Konto erstellt. Bitte bestätige zuerst den Link in deiner E-Mail und melde dich danach an.');
             return;
         }
         cloudSession = response.data.session;
@@ -464,8 +503,9 @@ async function submitCloudAuthentication(action) {
             setCloudStatus('Bitte bestätige zuerst den Link in deiner E-Mail und melde dich anschließend an.');
         }
     } catch (error) {
+        cloudSignupInProgress = false;
         console.error('Supabase-Anmeldung ist fehlgeschlagen:', error);
-        setCloudStatus(`Anmeldung fehlgeschlagen: ${error.message || error}`);
+        setCloudStatus(`${action === 'signup' ? 'Registrierung' : 'Anmeldung'} fehlgeschlagen: ${error.message || error}`);
     }
 }
 
@@ -485,13 +525,18 @@ async function signOutOfCloud() {
     }
 }
 
-document.getElementById('cloudAccountButton')?.addEventListener('click', openCloudAuthModal);
+document.getElementById('cloudAccountButton')?.addEventListener('click', () => {
+    setCloudAuthMode('signin');
+    openCloudAuthModal();
+});
 document.getElementById('cloudAuthClose')?.addEventListener('click', closeCloudAuthModal);
 document.getElementById('cloudAuthModal')?.addEventListener('click', event => {
     if (event.target === event.currentTarget) closeCloudAuthModal();
 });
 document.getElementById('cloudSignIn')?.addEventListener('click', () => void submitCloudAuthentication('signin'));
 document.getElementById('cloudSignUp')?.addEventListener('click', () => void submitCloudAuthentication('signup'));
+document.getElementById('cloudShowSignUp')?.addEventListener('click', () => setCloudAuthMode('signup'));
+document.getElementById('cloudShowSignIn')?.addEventListener('click', () => setCloudAuthMode('signin'));
 document.getElementById('cloudSignOut')?.addEventListener('click', () => void signOutOfCloud());
 document.getElementById('cloudSyncNow')?.addEventListener('click', () => void syncCloudData());
 window.addEventListener('online', scheduleCloudSync);
@@ -2756,6 +2801,13 @@ loadNotebooksToDashboard();
 void initializeSupabaseCloud();
 
 if ('serviceWorker' in navigator) {
+    const hadController = Boolean(navigator.serviceWorker.controller);
+    let isReloadingForUpdate = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!hadController || isReloadingForUpdate) return;
+        isReloadingForUpdate = true;
+        window.location.reload();
+    });
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js')
             .then(reg => console.log('Service Worker erfolgreich registriert:', reg))

@@ -140,7 +140,7 @@
             <div class="cloud-auth-heading">
                 <div>
                     <h2 id="cloudAuthTitle">Bei MyNotes anmelden</h2>
-                    <p id="cloudAuthMessage">Melde dich an oder erstelle ein Konto, um fortzufahren.</p>
+                    <p id="cloudAuthMessage">Melde dich mit deinem Konto an.</p>
                 </div>
                 <button id="cloudAuthClose" type="button" class="cloud-auth-close" aria-label="Schließen">×</button>
             </div>
@@ -155,8 +155,10 @@
                 </label>
                 <div class="cloud-auth-actions">
                     <button id="cloudSignIn" type="button">Anmelden</button>
-                    <button id="cloudSignUp" type="button">Konto erstellen</button>
+                    <button id="cloudSignUp" class="hidden" type="button">Konto erstellen</button>
                 </div>
+                <button id="cloudShowSignUp" class="cloud-auth-mode-switch" type="button">Noch kein Konto? Registrieren</button>
+                <button id="cloudShowSignIn" class="cloud-auth-mode-switch hidden" type="button">Schon ein Konto? Anmelden</button>
             </div>
             <div id="cloudAccountPanel" class="cloud-account-panel hidden">
                 <p>Eingeloggt als <strong id="cloudAccountEmail"></strong></p>

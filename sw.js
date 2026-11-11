@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mynotes-v19';
+const CACHE_NAME = 'mynotes-v20';
 
 const CORE_ASSETS = [
     './',
@@ -57,15 +57,16 @@ self.addEventListener('fetch', event => {
     event.respondWith((async () => {
         const cache = await caches.open(CACHE_NAME);
         const cached = await cache.match(request);
-        if (cached) return cached;
+        if (cached && !isLocalAsset) return cached;
 
         try {
-            const response = await fetch(request);
+            const response = await fetch(request, { cache: isLocalAsset ? 'no-cache' : 'default' });
             if (response.ok && (isLocalAsset || isRemoteAsset)) {
                 await cache.put(request, response.clone());
             }
             return response;
         } catch (error) {
+            if (cached) return cached;
             if (request.mode === 'navigate') {
                 const offlinePage = await cache.match('./index.html');
                 if (offlinePage) return offlinePage;

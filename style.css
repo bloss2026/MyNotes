@@ -1383,6 +1383,17 @@ textarea:focus-visible {
     color: #334155;
 }
 
+.cloud-auth-mode-switch {
+    display: block;
+    margin: 14px auto 0;
+    padding: 4px;
+    border: 0;
+    background: transparent;
+    color: #2b59a2;
+    font-size: 14px;
+    font-weight: 600;
+}
+
 .editor-page-sidebar {
     position: absolute;
     z-index: 25;
