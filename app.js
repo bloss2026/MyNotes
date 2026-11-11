@@ -1810,6 +1810,8 @@ function attachEditorInteractions() {
 
     let pinchGesture = null;
     let panGesture = null;
+    let pagePanX = 0;
+    let pagePanY = 0;
     const midpoint = (first, second) => ({
         clientX: (first.clientX + second.clientX) / 2,
         clientY: (first.clientY + second.clientY) / 2
@@ -1818,28 +1820,68 @@ function attachEditorInteractions() {
         second.clientX - first.clientX,
         second.clientY - first.clientY
     );
+    const constrainPagePan = (page, panX, panY, pageOffsetX, pageOffsetY) => {
+        const areaStyle = getComputedStyle(canvasArea);
+        const paddingLeft = parseFloat(areaStyle.paddingLeft) || 0;
+        const paddingRight = parseFloat(areaStyle.paddingRight) || 0;
+        const paddingTop = parseFloat(areaStyle.paddingTop) || 0;
+        const paddingBottom = parseFloat(areaStyle.paddingBottom) || 0;
+        const viewportLeft = canvasArea.clientLeft + paddingLeft;
+        const viewportRight = canvasArea.clientLeft + canvasArea.clientWidth - paddingRight;
+        const viewportTop = canvasArea.clientTop + paddingTop;
+        const viewportBottom = canvasArea.clientTop + canvasArea.clientHeight - paddingBottom;
+        const pageWidth = page.offsetWidth * currentPageZoom;
+        const pageHeight = page.offsetHeight * currentPageZoom;
+        const scrollLeft = canvasArea.scrollLeft;
+        const scrollTop = canvasArea.scrollTop;
+
+        if (pageWidth > viewportRight - viewportLeft) {
+            const minPanX = viewportRight - pageWidth + scrollLeft - pageOffsetX;
+            const maxPanX = viewportLeft + scrollLeft - pageOffsetX;
+            panX = Math.max(minPanX, Math.min(maxPanX, panX));
+        } else {
+            panX = 0;
+        }
+        if (pageHeight > viewportBottom - viewportTop) {
+            const minPanY = viewportBottom - pageHeight + scrollTop - pageOffsetY;
+            const maxPanY = viewportTop + scrollTop - pageOffsetY;
+            panY = Math.max(minPanY, Math.min(maxPanY, panY));
+        } else {
+            panY = 0;
+        }
+        return { x: panX, y: panY };
+    };
+    const setPageTransform = page => {
+        page.style.transform = currentPageZoom === 1 && pagePanX === 0 && pagePanY === 0
+            ? ''
+            : `translate3d(${pagePanX}px, ${pagePanY}px, 0) scale(${currentPageZoom})`;
+    };
     const applyPinchZoom = (zoom, center) => {
         const page = document.getElementById('notebookPage');
         if (!page || !pinchGesture) return;
         currentPageZoom = Math.max(1, Math.min(3, zoom));
-        page.style.transform = currentPageZoom === 1 ? '' : `scale(${currentPageZoom})`;
         canvasArea.classList.toggle('is-zoomed', currentPageZoom > 1);
         const zoomIndicator = document.getElementById('pageZoomIndicator');
         if (zoomIndicator) zoomIndicator.textContent = `${Math.round(currentPageZoom * 100)}%`;
         const areaBounds = canvasArea.getBoundingClientRect();
         if (currentPageZoom === 1) {
+            pagePanX = 0;
+            pagePanY = 0;
+            setPageTransform(page);
             canvasArea.scrollLeft = 0;
             canvasArea.scrollTop = 0;
             return;
         }
-        canvasArea.scrollLeft = Math.max(
-            0,
-            pinchGesture.pageOffsetX + pinchGesture.anchorX * currentPageZoom - (center.clientX - areaBounds.left)
+        const pan = constrainPagePan(
+            page,
+            center.clientX - areaBounds.left - pinchGesture.pageOffsetX + canvasArea.scrollLeft - pinchGesture.anchorX * currentPageZoom,
+            center.clientY - areaBounds.top - pinchGesture.pageOffsetY + canvasArea.scrollTop - pinchGesture.anchorY * currentPageZoom,
+            pinchGesture.pageOffsetX,
+            pinchGesture.pageOffsetY
         );
-        canvasArea.scrollTop = Math.max(
-            0,
-            pinchGesture.pageOffsetY + pinchGesture.anchorY * currentPageZoom - (center.clientY - areaBounds.top)
-        );
+        pagePanX = pan.x;
+        pagePanY = pan.y;
+        setPageTransform(page);
     };
 
     canvasArea.addEventListener('touchstart', event => {
@@ -1847,7 +1889,8 @@ function attachEditorInteractions() {
             const first = event.touches[0];
             const second = event.touches[1];
             const center = midpoint(first, second);
-            const pageBounds = document.getElementById('notebookPage').getBoundingClientRect();
+            const page = document.getElementById('notebookPage');
+            const pageBounds = page.getBoundingClientRect();
             const areaBounds = canvasArea.getBoundingClientRect();
             const startDistance = touchDistance(first, second);
             if (!startDistance) return;
@@ -1856,18 +1899,22 @@ function attachEditorInteractions() {
                 startDistance,
                 anchorX: (center.clientX - pageBounds.left) / currentPageZoom,
                 anchorY: (center.clientY - pageBounds.top) / currentPageZoom,
-                pageOffsetX: pageBounds.left - areaBounds.left + canvasArea.scrollLeft,
-                pageOffsetY: pageBounds.top - areaBounds.top + canvasArea.scrollTop
+                pageOffsetX: pageBounds.left - areaBounds.left + canvasArea.scrollLeft - pagePanX,
+                pageOffsetY: pageBounds.top - areaBounds.top + canvasArea.scrollTop - pagePanY
             };
             panGesture = null;
             event.preventDefault();
         } else if (event.touches.length === 1 && currentPageZoom > 1) {
             const touch = event.touches[0];
+            const pageBounds = document.getElementById('notebookPage').getBoundingClientRect();
+            const areaBounds = canvasArea.getBoundingClientRect();
             panGesture = {
                 startX: touch.clientX,
                 startY: touch.clientY,
-                scrollLeft: canvasArea.scrollLeft,
-                scrollTop: canvasArea.scrollTop
+                panX: pagePanX,
+                panY: pagePanY,
+                pageOffsetX: pageBounds.left - areaBounds.left + canvasArea.scrollLeft - pagePanX,
+                pageOffsetY: pageBounds.top - areaBounds.top + canvasArea.scrollTop - pagePanY
             };
         }
     }, { passive: false });
@@ -1883,8 +1930,17 @@ function attachEditorInteractions() {
         } else if (event.touches.length === 1 && panGesture && currentPageZoom > 1) {
             event.preventDefault();
             const touch = event.touches[0];
-            canvasArea.scrollLeft = Math.max(0, panGesture.scrollLeft - touch.clientX + panGesture.startX);
-            canvasArea.scrollTop = Math.max(0, panGesture.scrollTop - touch.clientY + panGesture.startY);
+            const page = document.getElementById('notebookPage');
+            const pan = constrainPagePan(
+                page,
+                panGesture.panX + touch.clientX - panGesture.startX,
+                panGesture.panY + touch.clientY - panGesture.startY,
+                panGesture.pageOffsetX,
+                panGesture.pageOffsetY
+            );
+            pagePanX = pan.x;
+            pagePanY = pan.y;
+            setPageTransform(page);
         }
     }, { passive: false });
 
@@ -1892,11 +1948,15 @@ function attachEditorInteractions() {
         if (event.touches.length < 2) pinchGesture = null;
         if (event.touches.length === 1 && currentPageZoom > 1) {
             const touch = event.touches[0];
+            const pageBounds = document.getElementById('notebookPage').getBoundingClientRect();
+            const areaBounds = canvasArea.getBoundingClientRect();
             panGesture = {
                 startX: touch.clientX,
                 startY: touch.clientY,
-                scrollLeft: canvasArea.scrollLeft,
-                scrollTop: canvasArea.scrollTop
+                panX: pagePanX,
+                panY: pagePanY,
+                pageOffsetX: pageBounds.left - areaBounds.left + canvasArea.scrollLeft - pagePanX,
+                pageOffsetY: pageBounds.top - areaBounds.top + canvasArea.scrollTop - pagePanY
             };
         } else if (!event.touches.length) {
             panGesture = null;
