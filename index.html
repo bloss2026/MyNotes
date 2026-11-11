@@ -58,7 +58,7 @@
             </div>
 
             <nav class="space-y-1">
-                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-200/70 text-slate-900 font-medium text-sm">
+                <a id="documentsNav" href="#documents" aria-current="page" class="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-200/70 text-slate-900 font-medium text-sm">
                     <i data-lucide="folder" class="w-4 h-4 text-blue-600"></i> Dokumente
                 </a>
                 <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors">
@@ -82,7 +82,7 @@
                 </button>
                 <p id="cloudSyncStatus" role="status">Lokale Speicherung aktiv</p>
             </section>
-            <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors">
+            <a id="trashNav" href="#trash" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors">
                 <i data-lucide="trash-2" class="w-4 h-4"></i> Papierkorb
             </a>
         </div>
@@ -93,7 +93,7 @@
         
         <!-- Desktop Header -->
         <header id="desktopHeader" class="hidden md:flex h-16 border-b border-slate-100 px-8 items-center justify-between shrink-0">
-            <h1 class="text-2xl font-bold tracking-tight text-slate-900">Dokumente</h1>
+            <h1 id="mainPageTitle" class="text-2xl font-bold tracking-tight text-slate-900">Dokumente</h1>
             
             <div class="flex items-center gap-4 relative">
                 <div class="relative">
@@ -119,7 +119,7 @@
         </header>
 
         <!-- Dashboard Content -->
-        <div class="flex-1 overflow-y-auto p-4 md:p-8">
+        <div id="dashboardView" class="flex-1 overflow-y-auto p-4 md:p-8">
             <div class="max-w-6xl mx-auto space-y-6 md:space-y-8">
                 <div>
                     <h2 class="text-lg md:text-xl font-bold text-slate-900">Keine leere Seite mehr</h2>
@@ -133,6 +133,17 @@
                 </div>
             </div>
         </div>
+
+        <section id="trashView" class="hidden flex-1 overflow-y-auto p-4 md:p-8">
+            <div class="max-w-6xl mx-auto space-y-6">
+                <div>
+                    <h2 class="text-lg md:text-xl font-bold text-slate-900">Papierkorb</h2>
+                    <p class="text-xs md:text-sm text-slate-500">Gelöschte Notizbücher können hier wiederhergestellt oder endgültig gelöscht werden.</p>
+                </div>
+                <div id="trashNotebookList" class="trash-notebook-list"></div>
+                <p id="trashEmptyState" class="hidden rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Der Papierkorb ist leer.</p>
+            </div>
+        </section>
     </main>
 
     <div id="cloudAuthModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4">

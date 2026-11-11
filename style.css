@@ -108,6 +108,18 @@ textarea:focus-visible {
     color: #94a3b8;
 }
 
+.notebook-editor.is-read-only #notebookDrawing,
+.notebook-editor.is-read-only #notebookShapes {
+    pointer-events: none !important;
+}
+
+.notebook-editor.is-read-only button:disabled,
+.notebook-editor.is-read-only input:disabled,
+.notebook-editor.is-read-only select:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
 /* Editor-Werkzeugleiste */
 
 .tool-button {
@@ -1041,6 +1053,7 @@ textarea:focus-visible {
     justify-content: center;
     overflow: auto;
     padding: 0 24px 30px;
+    touch-action: pan-y;
 }
 
 .notebook-page {
@@ -1052,6 +1065,7 @@ textarea:focus-visible {
     flex: 0 0 auto;
     aspect-ratio: 0.76;
     overflow: hidden;
+    transform-origin: top left;
     border: 1px solid #aeb0b2;
     background-color: #f8f7e9;
     box-shadow: 0 2px 5px #00000030;
@@ -1243,6 +1257,13 @@ textarea:focus-visible {
     cursor: not-allowed;
 }
 
+.page-zoom-indicator {
+    padding-left: 8px;
+    border-left: 1px solid #e5e7eb;
+    color: #64748b;
+    font-size: 12px;
+}
+
 .cloud-connect-card {
     margin-bottom: 10px;
     padding: 10px;
@@ -1392,6 +1413,76 @@ textarea:focus-visible {
     color: #2b59a2;
     font-size: 14px;
     font-weight: 600;
+}
+
+.trash-notebook-list {
+    display: grid;
+    gap: 12px;
+}
+
+.trash-notebook-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #fff;
+}
+
+.trash-notebook-title {
+    margin: 0;
+    color: #1e293b;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.trash-notebook-date {
+    margin: 5px 0 0;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.trash-notebook-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.trash-restore-button,
+.trash-delete-button {
+    min-height: 38px;
+    padding: 8px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    background: #fff;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.trash-restore-button {
+    border-color: #2b59a2;
+    background: #2b59a2;
+    color: #fff;
+}
+
+.trash-delete-button {
+    border-color: #fecaca;
+    color: #b91c1c;
+}
+
+@media (max-width: 640px) {
+    .trash-notebook-card {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .trash-notebook-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
 }
 
 .editor-page-sidebar {

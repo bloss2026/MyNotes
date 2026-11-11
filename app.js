@@ -67,8 +67,44 @@ function toggleMobileSidebar() {
     sidebarBackdrop.classList.toggle('hidden');
 }
 
+function closeMobileSidebar() {
+    sidebar.classList.add('-translate-x-full');
+    sidebarBackdrop.classList.add('hidden');
+}
+
 if (toggleMenuBtn) toggleMenuBtn.addEventListener('click', toggleMobileSidebar);
 if (sidebarBackdrop) sidebarBackdrop.addEventListener('click', toggleMobileSidebar);
+
+function showMainView(view) {
+    const showTrash = view === 'trash';
+    document.getElementById('dashboardView')?.classList.toggle('hidden', showTrash);
+    document.getElementById('trashView')?.classList.toggle('hidden', !showTrash);
+    document.getElementById('mainPageTitle').textContent = showTrash ? 'Papierkorb' : 'Dokumente';
+    document.getElementById('documentsNav')?.classList.toggle('bg-slate-200/70', !showTrash);
+    document.getElementById('documentsNav')?.classList.toggle('text-slate-900', !showTrash);
+    document.getElementById('documentsNav')?.classList.toggle('text-slate-600', showTrash);
+    document.getElementById('trashNav')?.classList.toggle('bg-slate-200/70', showTrash);
+    document.getElementById('trashNav')?.classList.toggle('text-slate-900', showTrash);
+    document.getElementById('trashNav')?.classList.toggle('text-slate-600', !showTrash);
+    if (showTrash) {
+        document.getElementById('documentsNav')?.removeAttribute('aria-current');
+        document.getElementById('trashNav')?.setAttribute('aria-current', 'page');
+    } else {
+        document.getElementById('documentsNav')?.setAttribute('aria-current', 'page');
+        document.getElementById('trashNav')?.removeAttribute('aria-current');
+    }
+    closeMobileSidebar();
+    if (showTrash) renderTrash();
+}
+
+document.getElementById('documentsNav')?.addEventListener('click', event => {
+    event.preventDefault();
+    showMainView('documents');
+});
+document.getElementById('trashNav')?.addEventListener('click', event => {
+    event.preventDefault();
+    showMainView('trash');
+});
 
 function closeNewMenus() {
     [newDropdown, mobileNewDropdown].forEach(menu => {
@@ -220,6 +256,12 @@ try {
     notebookTombstones = JSON.parse(localStorage.getItem('mynotes_deleted_notebooks')) || {};
 } catch (error) {
     console.error('Lokale Löschmarkierungen konnten nicht gelesen werden:', error);
+}
+let notebookPurgeTombstones = {};
+try {
+    notebookPurgeTombstones = JSON.parse(localStorage.getItem('mynotes_purged_notebooks')) || {};
+} catch (error) {
+    console.error('Lokale endgültige Löschmarkierungen konnten nicht gelesen werden:', error);
 }
 const notebookDb = window.Dexie ? new Dexie('mynotes-data') : null;
 let notebookStorageError = null;
@@ -545,6 +587,10 @@ function saveNotebookTombstones() {
     localStorage.setItem('mynotes_deleted_notebooks', JSON.stringify(notebookTombstones));
 }
 
+function saveNotebookPurgeTombstones() {
+    localStorage.setItem('mynotes_purged_notebooks', JSON.stringify(notebookPurgeTombstones));
+}
+
 function cloudNotebookId(notebookId) {
     return String(notebookId);
 }
@@ -709,25 +755,51 @@ async function downloadCloudNotebook(userId, row) {
     delete notebookTombstones[String(id)];
 }
 
-async function applyCloudNotebookDeletion(row) {
+async function applyCloudNotebookDeletion(userId, row) {
     const id = /^\d+$/.test(row.notebook_id) ? Number(row.notebook_id) : row.notebook_id;
-    notebooks = notebooks.filter(item => String(item.id) !== String(id));
-    await notebookDb.pages.where('notebookId').equals(String(id)).delete();
+    const localNotebook = notebooks.find(item => String(item.id) === String(id));
+    if (!localNotebook && row.page_count > 0) {
+        await downloadCloudNotebook(userId, row);
+    } else if (!localNotebook && row.metadata && Object.keys(row.metadata).length) {
+        notebooks.push({
+            ...row.metadata,
+            id,
+            updatedAt: row.updated_at,
+            pageCount: row.page_count
+        });
+    }
     notebookTombstones[String(id)] = row.deleted_at || row.updated_at;
 }
 
-async function uploadCloudNotebookDeletion(userId, notebookId, deletedAt) {
+async function uploadCloudNotebookDeletion(notebookId, deletedAt, notebook, remote) {
+    const pages = notebook ? await getPagesForCloud(notebook) : null;
+    const metadata = notebook ? { ...notebook } : { ...(remote?.metadata || {}) };
+    delete metadata.pages;
     const { error } = await cloudClient
         .from('mynotes_notebooks')
         .upsert({
             notebook_id: cloudNotebookId(notebookId),
-            metadata: {},
-            page_count: 0,
+            metadata,
+            page_count: pages ? pages.length : remote?.page_count || 0,
             updated_at: deletedAt,
             deleted_at: deletedAt
         }, { onConflict: 'user_id,notebook_id' });
     throwCloudError(error, 'Notizbuch-Löschung konnte nicht synchronisiert werden');
+}
+
+async function uploadCloudNotebookPurge(userId, notebookId, purgedAt) {
+    const { error } = await cloudClient
+        .from('mynotes_notebooks')
+        .upsert({
+            notebook_id: cloudNotebookId(notebookId),
+            metadata: { mynotes_permanently_deleted: true },
+            page_count: 0,
+            updated_at: purgedAt,
+            deleted_at: purgedAt
+        }, { onConflict: 'user_id,notebook_id' });
+    throwCloudError(error, 'Endgültige Löschung konnte nicht synchronisiert werden');
     await removeCloudPageFiles(userId, notebookId);
+    await notebookDb.pages.where('notebookId').equals(String(notebookId)).delete();
 }
 
 async function syncCloudData() {
@@ -758,7 +830,8 @@ async function syncCloudData() {
         const allIds = new Set([
             ...remoteById.keys(),
             ...localById.keys(),
-            ...Object.keys(notebookTombstones)
+            ...Object.keys(notebookTombstones),
+            ...Object.keys(notebookPurgeTombstones)
         ]);
         const changedNotebookIds = new Set();
         cloudSyncSuppression += 1;
@@ -768,6 +841,26 @@ async function syncCloudData() {
                 const local = localById.get(id);
                 const deletedAt = notebookTombstones[id];
                 const remoteTime = Date.parse(remote?.updated_at || '') || 0;
+                const purgedAt = notebookPurgeTombstones[id];
+                const remotelyPurged = remote?.metadata?.mynotes_permanently_deleted === true;
+
+                if (purgedAt || remotelyPurged) {
+                    const localPurgeTime = Date.parse(purgedAt || '') || 0;
+                    const winningPurge = remotelyPurged && remoteTime > localPurgeTime
+                        ? remote.updated_at
+                        : purgedAt || remote?.updated_at || new Date().toISOString();
+                    notebookPurgeTombstones[id] = winningPurge;
+                    delete notebookTombstones[id];
+                    notebooks = notebooks.filter(item => String(item.id) !== id);
+                    const winningPurgeTime = Date.parse(winningPurge) || 0;
+                    if (!remotelyPurged || remoteTime < winningPurgeTime) {
+                        await uploadCloudNotebookPurge(userId, id, winningPurge);
+                    } else {
+                        await removeCloudPageFiles(userId, id);
+                        await notebookDb.pages.where('notebookId').equals(id).delete();
+                    }
+                    continue;
+                }
 
                 if (deletedAt) {
                     const localDeleteTime = Date.parse(deletedAt) || 0;
@@ -780,9 +873,7 @@ async function syncCloudData() {
                             ? remote.deleted_at
                             : deletedAt;
                         if (!remote?.deleted_at || remoteTime < localDeleteTime) {
-                            await uploadCloudNotebookDeletion(userId, id, winningDelete);
-                        } else {
-                            await removeCloudPageFiles(userId, id);
+                            await uploadCloudNotebookDeletion(id, winningDelete, local, remote);
                         }
                         notebookTombstones[id] = winningDelete;
                     }
@@ -794,7 +885,7 @@ async function syncCloudData() {
                     if (remote.deleted_at) {
                         if (localTime > remoteTime) await uploadCloudNotebook(userId, local);
                         else {
-                            await applyCloudNotebookDeletion(remote);
+                            await applyCloudNotebookDeletion(userId, remote);
                             changedNotebookIds.add(id);
                         }
                     } else if (localTime >= remoteTime) {
@@ -806,7 +897,7 @@ async function syncCloudData() {
                 } else if (local) {
                     await uploadCloudNotebook(userId, local);
                 } else if (remote?.deleted_at) {
-                    await applyCloudNotebookDeletion(remote);
+                    await applyCloudNotebookDeletion(userId, remote);
                     changedNotebookIds.add(id);
                 } else if (remote) {
                     await downloadCloudNotebook(userId, remote);
@@ -815,12 +906,15 @@ async function syncCloudData() {
             }
         } finally {
             saveNotebookTombstones();
+            saveNotebookPurgeTombstones();
             saveNotebookMetadata();
             cloudSyncSuppression -= 1;
         }
         loadNotebooksToDashboard();
+        renderTrash();
         if (currentNotebookId !== null && changedNotebookIds.has(String(currentNotebookId))) {
-            if (notebooks.some(notebook => String(notebook.id) === String(currentNotebookId))) {
+            if (notebooks.some(notebook => String(notebook.id) === String(currentNotebookId)) &&
+                !notebookTombstones[String(currentNotebookId)]) {
                 await openNotebook(currentNotebookId);
             } else {
                 location.reload();
@@ -1016,7 +1110,25 @@ document.querySelectorAll('.orientation-button').forEach(button => {
 // Öffnet das Notizbuch im Editor mit dem exakten Goodnotes-Dreipunkt-Menü
 let currentNotebookId = null;
 let currentPageIndex = 0;
+let currentPageZoom = 1;
 let activeEditorTool = 'pen';
+let isNotebookReadOnly = false;
+const readOnlyEditorActions = new Set([
+    'export-pdf',
+    'next-page',
+    'previous-page',
+    'search',
+    'share',
+    'show-recordings',
+    'toggle-info',
+    'toggle-options',
+    'toggle-read-only',
+    'toggle-recording-menu',
+    'toggle-ruler',
+    'toggle-sidebar',
+    'toggle-toolbar-settings',
+    'change-template'
+]);
 let activePenColor = '#111111';
 let activePenWidth = 3;
 let activePenTool = 'pen';
@@ -1164,6 +1276,7 @@ function getNotebookPages(notebook) {
 }
 
 function persistNotebookPages() {
+    if (isNotebookReadOnly) return;
     const notebook = notebooks.find(item => item.id === currentNotebookId);
     const textarea = document.getElementById('notebookContent');
     const canvas = document.getElementById('notebookDrawing');
@@ -1220,6 +1333,11 @@ function updatePageCounter() {
         previousButton.disabled = currentPageIndex <= 0;
         const pageLabel = document.createElement('span');
         pageLabel.textContent = `${currentPageIndex + 1} von ${pages.length || 1}`;
+        const zoomLabel = document.createElement('span');
+        zoomLabel.id = 'pageZoomIndicator';
+        zoomLabel.className = 'page-zoom-indicator';
+        zoomLabel.title = 'Mit zwei Fingern zoomen';
+        zoomLabel.textContent = `${Math.round(currentPageZoom * 100)}%`;
         const nextButton = document.createElement('button');
         nextButton.type = 'button';
         nextButton.className = 'page-counter-button';
@@ -1227,7 +1345,7 @@ function updatePageCounter() {
         nextButton.setAttribute('aria-label', 'Nächste Seite');
         nextButton.textContent = '›';
         nextButton.disabled = currentPageIndex >= pages.length - 1;
-        counter.append(previousButton, pageLabel, nextButton);
+        counter.append(previousButton, pageLabel, nextButton, zoomLabel);
     }
     const menuCounter = document.getElementById('menuPageCounter');
     if (menuCounter) menuCounter.textContent = `${currentPageIndex + 1} von ${pages.length || 1}`;
@@ -1311,15 +1429,17 @@ function resizeNotebookCanvas() {
     const shapesSvg = document.getElementById('notebookShapes');
     const ratio = window.devicePixelRatio || 1;
     const oldImage = canvas.toDataURL();
-    canvas.width = Math.max(1, Math.round(bounds.width * ratio));
-    canvas.height = Math.max(1, Math.round(bounds.height * ratio));
+    const width = bounds.width / currentPageZoom;
+    const height = bounds.height / currentPageZoom;
+    canvas.width = Math.max(1, Math.round(width * ratio));
+    canvas.height = Math.max(1, Math.round(height * ratio));
     const context = canvas.getContext('2d');
     canvas.dataset.pixelRatio = String(ratio);
     context.scale(ratio, ratio);
     if (shapesSvg) {
-        shapesSvg.setAttribute('viewBox', `0 0 ${bounds.width} ${bounds.height}`);
-        shapesSvg.setAttribute('width', String(bounds.width));
-        shapesSvg.setAttribute('height', String(bounds.height));
+        shapesSvg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+        shapesSvg.setAttribute('width', String(width));
+        shapesSvg.setAttribute('height', String(height));
     }
     restorePageDrawing(oldImage);
 }
@@ -1380,10 +1500,77 @@ function setEditorTool(tool) {
     const canvas = document.getElementById('notebookDrawing');
     const textarea = document.getElementById('notebookContent');
     if (canvas) canvas.classList.toggle('is-drawable', ['pen', 'pencil', 'pen-fountain', 'eraser', 'highlighter', 'shapes', 'sticky', 'objects'].includes(tool));
-    if (textarea) textarea.readOnly = ['pen', 'pencil', 'eraser', 'highlighter', 'lasso', 'shapes'].includes(tool);
+    if (textarea) {
+        textarea.readOnly = isNotebookReadOnly || ['pen', 'pencil', 'eraser', 'highlighter', 'lasso', 'shapes'].includes(tool);
+    }
     const shapesSvg = document.getElementById('notebookShapes');
     if (shapesSvg) shapesSvg.classList.toggle('is-selecting', tool === 'lasso');
     updateDeleteShapeButton();
+}
+
+function setNotebookReadOnlyMode(enabled) {
+    const editor = document.getElementById('notebookEditor');
+    if (!editor) return;
+    isNotebookReadOnly = enabled;
+    editor.classList.toggle('is-read-only', enabled);
+
+    if (enabled && activeDrawing) {
+        const canvas = document.getElementById('notebookDrawing');
+        const context = canvas?.getContext('2d');
+        if (context && drawingSnapshot) context.putImageData(drawingSnapshot, 0, 0);
+        activeDrawing = false;
+        currentStrokePoints = [];
+        drawingStartPoint = null;
+        drawingEndPoint = null;
+        drawingSnapshot = null;
+    }
+    if (enabled && shapeEditStart && selectedShapeId) {
+        const shape = getCurrentPageShapes().find(item => item.id === selectedShapeId);
+        if (shape) Object.assign(shape, shapeEditStart.shape);
+        shapeEditStart = null;
+        renderNotebookShapes();
+    }
+    if (enabled && selectedShapeId) {
+        selectedShapeId = null;
+        renderNotebookShapes();
+    }
+
+    const textarea = document.getElementById('notebookContent');
+    if (textarea) {
+        textarea.readOnly = enabled || ['pen', 'pencil', 'eraser', 'highlighter', 'lasso', 'shapes'].includes(activeEditorTool);
+    }
+
+    const modeButton = editor.querySelector('[data-editor-action="toggle-read-only"]');
+    if (modeButton) {
+        modeButton.setAttribute('aria-pressed', String(enabled));
+        modeButton.setAttribute('aria-label', enabled ? 'Bearbeitungsmodus aktivieren' : 'Lesemodus aktivieren');
+        modeButton.title = enabled ? 'Bearbeitungsmodus aktivieren' : 'Lesemodus aktivieren';
+        modeButton.innerHTML = `<i data-lucide="${enabled ? 'pencil' : 'book-open'}" class="w-4 h-4"></i><span>${enabled ? 'Bearbeiten' : 'Nur lesen'}</span>`;
+        lucide.createIcons();
+    }
+
+    editor.querySelectorAll('[data-editor-action]').forEach(button => {
+        button.disabled = enabled && !readOnlyEditorActions.has(button.dataset.editorAction);
+    });
+    editor.querySelectorAll([
+        '.editor-main-tools button',
+        '.editor-floating-toolbar button',
+        '.editor-history-controls button',
+        '#editorPageSidebar .editor-add-page',
+        '[data-pen-choice]',
+        '[data-pen-color]',
+        '[data-toolbar-toggle]',
+        '.toolbar-select',
+        '#applyPenSelection',
+        '#editorColorPicker',
+        '#editorImageInput',
+        '#objectEmojiSelect',
+        '#notebookOptionsMenu button[onclick]',
+        '#notebookInfoPopover button'
+    ].join(',')).forEach(control => {
+        control.disabled = enabled;
+    });
+    if (!enabled) updateDeleteShapeButton();
 }
 
 function getCurrentPageShapes() {
@@ -1403,9 +1590,11 @@ function renderNotebookShapes() {
     const svg = document.getElementById('notebookShapes');
     if (!svg) return;
     const bounds = svg.getBoundingClientRect();
-    svg.setAttribute('viewBox', `0 0 ${bounds.width} ${bounds.height}`);
-    svg.setAttribute('width', String(bounds.width));
-    svg.setAttribute('height', String(bounds.height));
+    const width = bounds.width / currentPageZoom;
+    const height = bounds.height / currentPageZoom;
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.setAttribute('width', String(width));
+    svg.setAttribute('height', String(height));
     svg.replaceChildren();
 
     const namespace = 'http://www.w3.org/2000/svg';
@@ -1511,7 +1700,7 @@ function renderNotebookShapes() {
 }
 
 function deleteSelectedShape() {
-    if (!selectedShapeId) return;
+    if (isNotebookReadOnly || !selectedShapeId) return;
     const shapes = getCurrentPageShapes();
     const shapeIndex = shapes.findIndex(shape => shape.id === selectedShapeId);
     if (shapeIndex < 0) return;
@@ -1522,14 +1711,14 @@ function deleteSelectedShape() {
 }
 
 document.addEventListener('keydown', event => {
-    if (!selectedShapeId || activeEditorTool !== 'lasso' || !['Delete', 'Backspace'].includes(event.key)) return;
+    if (isNotebookReadOnly || !selectedShapeId || activeEditorTool !== 'lasso' || !['Delete', 'Backspace'].includes(event.key)) return;
     if (event.target instanceof HTMLElement && (event.target.isContentEditable || ['INPUT', 'TEXTAREA'].includes(event.target.tagName))) return;
     event.preventDefault();
     deleteSelectedShape();
 });
 
 function updateSelectedShape(changes) {
-    if (!selectedShapeId) return;
+    if (isNotebookReadOnly || !selectedShapeId) return;
     const shape = getCurrentPageShapes().find(item => item.id === selectedShapeId);
     if (!shape || ['emoji', 'image'].includes(shape.kind)) return;
     Object.assign(shape, changes);
@@ -1596,9 +1785,108 @@ function attachEditorInteractions() {
     const laserDot = document.getElementById('editorLaserDot');
     if (!editor || !textarea || !canvas || !canvasArea || !laserDot) return;
 
+    let pinchGesture = null;
+    let panGesture = null;
+    const midpoint = (first, second) => ({
+        clientX: (first.clientX + second.clientX) / 2,
+        clientY: (first.clientY + second.clientY) / 2
+    });
+    const touchDistance = (first, second) => Math.hypot(
+        second.clientX - first.clientX,
+        second.clientY - first.clientY
+    );
+    const applyPinchZoom = (zoom, center) => {
+        const page = document.getElementById('notebookPage');
+        if (!page || !pinchGesture) return;
+        currentPageZoom = Math.max(1, Math.min(3, zoom));
+        page.style.transform = currentPageZoom === 1 ? '' : `scale(${currentPageZoom})`;
+        const zoomIndicator = document.getElementById('pageZoomIndicator');
+        if (zoomIndicator) zoomIndicator.textContent = `${Math.round(currentPageZoom * 100)}%`;
+        const areaBounds = canvasArea.getBoundingClientRect();
+        if (currentPageZoom === 1) {
+            canvasArea.scrollLeft = 0;
+            canvasArea.scrollTop = 0;
+            return;
+        }
+        canvasArea.scrollLeft = Math.max(
+            0,
+            pinchGesture.pageOffsetX + pinchGesture.anchorX * currentPageZoom - (center.clientX - areaBounds.left)
+        );
+        canvasArea.scrollTop = Math.max(
+            0,
+            pinchGesture.pageOffsetY + pinchGesture.anchorY * currentPageZoom - (center.clientY - areaBounds.top)
+        );
+    };
+
+    canvasArea.addEventListener('touchstart', event => {
+        if (event.touches.length >= 2) {
+            const first = event.touches[0];
+            const second = event.touches[1];
+            const center = midpoint(first, second);
+            const pageBounds = document.getElementById('notebookPage').getBoundingClientRect();
+            const areaBounds = canvasArea.getBoundingClientRect();
+            const startDistance = touchDistance(first, second);
+            if (!startDistance) return;
+            pinchGesture = {
+                startZoom: currentPageZoom,
+                startDistance,
+                anchorX: (center.clientX - pageBounds.left) / currentPageZoom,
+                anchorY: (center.clientY - pageBounds.top) / currentPageZoom,
+                pageOffsetX: pageBounds.left - areaBounds.left + canvasArea.scrollLeft,
+                pageOffsetY: pageBounds.top - areaBounds.top + canvasArea.scrollTop
+            };
+            panGesture = null;
+            event.preventDefault();
+        } else if (event.touches.length === 1 && currentPageZoom > 1) {
+            const touch = event.touches[0];
+            panGesture = {
+                startX: touch.clientX,
+                startY: touch.clientY,
+                scrollLeft: canvasArea.scrollLeft,
+                scrollTop: canvasArea.scrollTop
+            };
+        }
+    }, { passive: false });
+
+    canvasArea.addEventListener('touchmove', event => {
+        if (event.touches.length >= 2 && pinchGesture) {
+            event.preventDefault();
+            const first = event.touches[0];
+            const second = event.touches[1];
+            const center = midpoint(first, second);
+            const scale = touchDistance(first, second) / pinchGesture.startDistance;
+            applyPinchZoom(pinchGesture.startZoom * scale, center);
+        } else if (event.touches.length === 1 && panGesture && currentPageZoom > 1) {
+            event.preventDefault();
+            const touch = event.touches[0];
+            canvasArea.scrollLeft = Math.max(0, panGesture.scrollLeft - touch.clientX + panGesture.startX);
+            canvasArea.scrollTop = Math.max(0, panGesture.scrollTop - touch.clientY + panGesture.startY);
+        }
+    }, { passive: false });
+
+    canvasArea.addEventListener('touchend', event => {
+        if (event.touches.length < 2) pinchGesture = null;
+        if (event.touches.length === 1 && currentPageZoom > 1) {
+            const touch = event.touches[0];
+            panGesture = {
+                startX: touch.clientX,
+                startY: touch.clientY,
+                scrollLeft: canvasArea.scrollLeft,
+                scrollTop: canvasArea.scrollTop
+            };
+        } else if (!event.touches.length) {
+            panGesture = null;
+        }
+    });
+    canvasArea.addEventListener('touchcancel', () => {
+        pinchGesture = null;
+        panGesture = null;
+    });
+
     editor.addEventListener('click', event => {
         const dropdownTrigger = event.target.closest('[data-toolbar-dropdown-toggle]');
         if (dropdownTrigger) {
+            if (isNotebookReadOnly) return;
             const menu = document.getElementById(dropdownTrigger.dataset.toolbarDropdownToggle);
             const isOpening = !menu?.classList.contains('is-open');
             if (dropdownTrigger.dataset.toolbarGroup === 'pen') {
@@ -1611,6 +1899,7 @@ function attachEditorInteractions() {
         }
         const toolButton = event.target.closest('[data-editor-tool]');
         if (toolButton) {
+            if (isNotebookReadOnly) return;
             setEditorTool(toolButton.dataset.editorTool);
             closeToolbarDropdowns();
             return;
@@ -1626,6 +1915,7 @@ function attachEditorInteractions() {
     });
     lastEditorText = textarea.value;
     textarea.addEventListener('input', () => {
+        if (isNotebookReadOnly) return;
         editorUndoStack.push(lastEditorText);
         if (editorUndoStack.length > 50) editorUndoStack.shift();
         lastEditorText = textarea.value;
@@ -1645,7 +1935,10 @@ function attachEditorInteractions() {
     const context = canvas.getContext('2d');
     const pointFromEvent = event => {
         const bounds = canvas.getBoundingClientRect();
-        return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+        return {
+            x: (event.clientX - bounds.left) / currentPageZoom,
+            y: (event.clientY - bounds.top) / currentPageZoom
+        };
     };
     function renderFreehandStroke(isComplete, pointerType) {
         if (!drawingSnapshot || !currentStrokePoints.length) return;
@@ -1691,6 +1984,7 @@ function attachEditorInteractions() {
         context.globalAlpha = 1;
     }
     canvas.addEventListener('pointerdown', event => {
+        if (isNotebookReadOnly) return;
         if (event.pointerType === 'touch') return;
         if (!canvas.classList.contains('is-drawable')) return;
         if (!['pen', 'pencil', 'pen-fountain', 'eraser', 'highlighter', 'shapes', 'sticky', 'objects'].includes(activeEditorTool)) return;
@@ -1716,6 +2010,7 @@ function attachEditorInteractions() {
         renderFreehandStroke(false, event.pointerType);
     });
     canvas.addEventListener('pointermove', event => {
+        if (isNotebookReadOnly) return;
         if (!activeDrawing || event.pointerType === 'touch') return;
         const point = pointFromEvent(event);
         if (activeEditorTool === 'shapes') drawingEndPoint = point;
@@ -1726,6 +2021,15 @@ function attachEditorInteractions() {
     });
     function finishDrawing() {
         if (!activeDrawing) return;
+        if (isNotebookReadOnly) {
+            if (drawingSnapshot) context.putImageData(drawingSnapshot, 0, 0);
+            activeDrawing = false;
+            currentStrokePoints = [];
+            drawingStartPoint = null;
+            drawingEndPoint = null;
+            drawingSnapshot = null;
+            return;
+        }
         const completedTool = activeEditorTool;
         if (activeEditorTool === 'shapes' && drawingStartPoint && drawingEndPoint) {
             const shapeId = `shape-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1760,6 +2064,7 @@ function attachEditorInteractions() {
 
     const shapesSvg = document.getElementById('notebookShapes');
     shapesSvg?.addEventListener('pointerdown', event => {
+        if (isNotebookReadOnly) return;
         if (activeEditorTool !== 'lasso') return;
         const shapeGroup = event.target instanceof Element ? event.target.closest('[data-shape-id]') : null;
         if (!shapeGroup) {
@@ -1780,7 +2085,7 @@ function attachEditorInteractions() {
         renderNotebookShapes();
     });
     shapesSvg?.addEventListener('pointermove', event => {
-        if (!shapeEditStart || !selectedShapeId) return;
+        if (isNotebookReadOnly || !shapeEditStart || !selectedShapeId) return;
         const pointer = pointFromEvent(event);
         const shapes = getCurrentPageShapes();
         const shape = shapes.find(item => item.id === selectedShapeId);
@@ -1823,6 +2128,7 @@ function attachEditorInteractions() {
 
     editor.querySelectorAll('[data-pen-color]').forEach(button => {
         button.addEventListener('click', () => {
+            if (isNotebookReadOnly) return;
             pendingPenSettings.color = button.dataset.penColor;
             document.getElementById('editorColorPicker').value = pendingPenSettings.color;
             editor.querySelectorAll('[data-pen-color]').forEach(colorButton => {
@@ -1832,12 +2138,14 @@ function attachEditorInteractions() {
     });
     editor.querySelectorAll('[data-pen-choice]').forEach(button => {
         button.addEventListener('click', () => {
+            if (isNotebookReadOnly) return;
             const tool = button.dataset.penChoice;
             stagePenChoice(tool);
             document.getElementById('penSettingsPanel').classList.add('is-open');
         });
     });
     document.getElementById('applyPenSelection').addEventListener('click', () => {
+        if (isNotebookReadOnly) return;
         penSettings[pendingPenTool] = { ...pendingPenSettings };
         setEditorTool(pendingPenTool);
         closeToolbarDropdowns();
@@ -1870,6 +2178,10 @@ function attachEditorInteractions() {
         });
     });
     document.getElementById('editorImageInput').addEventListener('change', event => {
+        if (isNotebookReadOnly) {
+            event.target.value = '';
+            return;
+        }
         const file = event.target.files[0];
         if (!file) return;
         const reader = new FileReader();
@@ -1884,8 +2196,11 @@ function attachEditorInteractions() {
                 alert('Die Bilddatei konnte nicht angezeigt werden.');
             };
             image.onload = () => {
+                if (isNotebookReadOnly) return;
                 const bounds = canvas.getBoundingClientRect();
-                const scale = Math.min(bounds.width * 0.6 / image.width, bounds.height * 0.6 / image.height, 1);
+                const canvasWidth = bounds.width / currentPageZoom;
+                const canvasHeight = bounds.height / currentPageZoom;
+                const scale = Math.min(canvasWidth * 0.6 / image.width, canvasHeight * 0.6 / image.height, 1);
                 const width = image.width * scale;
                 const height = image.height * scale;
                 const objectId = `object-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -1893,10 +2208,10 @@ function attachEditorInteractions() {
                     id: objectId,
                     kind: 'image',
                     src: String(reader.result),
-                    x1: (bounds.width - width) / 2,
-                    y1: (bounds.height - height) / 2,
-                    x2: (bounds.width + width) / 2,
-                    y2: (bounds.height + height) / 2
+                    x1: (canvasWidth - width) / 2,
+                    y1: (canvasHeight - height) / 2,
+                    x2: (canvasWidth + width) / 2,
+                    y2: (canvasHeight + height) / 2
                 });
                 selectedShapeId = objectId;
                 renderNotebookShapes();
@@ -2152,8 +2467,8 @@ async function exportNotebookPdf() {
 
             const pageElement = document.getElementById('notebookPage');
             const bounds = pageElement?.getBoundingClientRect();
-            const sourceWidth = bounds?.width || (landscape ? 1050 : 740);
-            const sourceHeight = bounds?.height || (landscape ? 740 : 1050);
+            const sourceWidth = bounds ? bounds.width / currentPageZoom : (landscape ? 1050 : 740);
+            const sourceHeight = bounds ? bounds.height / currentPageZoom : (landscape ? 740 : 1050);
             const scaleX = width / sourceWidth;
             const scaleY = height / sourceHeight;
             const fontSize = 14 * scaleX;
@@ -2252,6 +2567,7 @@ async function exportNotebookPdf() {
 function runEditorAction(action) {
     const notebook = notebooks.find(item => item.id === currentNotebookId);
     if (!notebook) return;
+    if (isNotebookReadOnly && !readOnlyEditorActions.has(action)) return;
     if (action === 'add-page') addNotebookPage();
     else if (action === 'duplicate-page') addNotebookPage(true);
     else if (action === 'previous-page') showNotebookPage(currentPageIndex - 1);
@@ -2263,6 +2579,11 @@ function runEditorAction(action) {
     else if (action === 'save') saveNotebookContent(currentNotebookId);
     else if (action === 'delete-selected-shape') deleteSelectedShape();
     else if (action === 'toggle-sidebar') document.getElementById('editorPageSidebar')?.classList.toggle('is-open');
+    else if (action === 'toggle-read-only') {
+        if (!isNotebookReadOnly) persistNotebookPages();
+        setNotebookReadOnlyMode(!isNotebookReadOnly);
+        closeMenu();
+    }
     else if (action === 'toggle-options') {
         const menu = document.getElementById('notebookOptionsMenu');
         menu?.classList.toggle('is-open');
@@ -2346,7 +2667,7 @@ function runEditorAction(action) {
 
 async function openNotebook(id) {
     let nb = notebooks.find(item => item.id === id);
-    if (!nb) return;
+    if (!nb || notebookTombstones[String(id)] || notebookPurgeTombstones[String(id)]) return;
     try {
         await ensureNotebookStorage();
         const storedPages = await notebookDb.pages
@@ -2368,6 +2689,8 @@ async function openNotebook(id) {
     if (!nb) return;
     currentNotebookId = id;
     currentPageIndex = 0;
+    currentPageZoom = 1;
+    isNotebookReadOnly = false;
     selectedShapeId = null;
     shapeEditStart = null;
     activeEditorTool = 'pen';
@@ -2449,8 +2772,8 @@ async function openNotebook(id) {
                             <button onclick="alert('Suche-Funktion'); closeMenu();" class="py-2 hover:bg-slate-50 flex flex-col items-center gap-1 text-slate-700 border-r border-slate-100">
                                 <i data-lucide="search" class="w-4 h-4"></i> Suchen
                             </button>
-                            <button onclick="alert('Nur-Lesen Modus'); closeMenu();" class="py-2 hover:bg-slate-50 flex flex-col items-center gap-1 text-slate-700">
-                                <i data-lucide="book-open" class="w-4 h-4"></i> Nur lesen
+                            <button data-editor-action="toggle-read-only" aria-pressed="false" class="py-2 hover:bg-slate-50 flex flex-col items-center gap-1 text-slate-700">
+                                <i data-lucide="book-open" class="w-4 h-4"></i><span>Nur lesen</span>
                             </button>
                         </div>
 
@@ -2675,6 +2998,7 @@ async function openNotebook(id) {
     setNotebookBackground(pages[0]);
     document.getElementById('menuPageCounter').textContent = `1 von ${pages.length}`;
     attachEditorInteractions();
+    setNotebookReadOnlyMode(false);
     restorePageDrawing(pages[0].drawing || '');
     renderNotebookShapes();
     updatePageCounter();
@@ -2711,6 +3035,7 @@ function closeNotebookInfo() {
 function renameNotebookPrompt(id) {
     closeMenu();
     closeNotebookInfo();
+    if (isNotebookReadOnly) return;
     const nb = notebooks.find(item => item.id === id);
     if (!nb) return;
     const newTitle = prompt("Neuer Name für das Notizbuch:", nb.title);
@@ -2727,6 +3052,7 @@ function renameNotebookPrompt(id) {
 // Seite leeren
 function clearNotebookContent(id) {
     closeMenu();
+    if (isNotebookReadOnly) return;
     if (confirm("Möchtest du diese Seite wirklich leeren?")) {
         const textarea = document.getElementById('notebookContent');
         if (textarea) textarea.value = '';
@@ -2745,20 +3071,73 @@ function clearNotebookContent(id) {
     }
 }
 
-// Notizbuch löschen
 function deleteNotebook(id) {
     closeMenu();
-    if (confirm("Möchtest du dieses Notizbuch wirklich in den Papierkorb verschieben?")) {
-        notebookTombstones[String(id)] = new Date().toISOString();
-        localStorage.setItem('mynotes_deleted_notebooks', JSON.stringify(notebookTombstones));
-        notebooks = notebooks.filter(item => item.id !== id);
-        saveNotebookMetadata();
-        location.reload();
+    if (isNotebookReadOnly) return;
+    if (!confirm('Möchtest du dieses Notizbuch wirklich in den Papierkorb verschieben?')) return;
+    const key = String(id);
+    notebookTombstones[key] = new Date().toISOString();
+    delete notebookPurgeTombstones[key];
+    saveNotebookTombstones();
+    saveNotebookPurgeTombstones();
+    saveNotebookMetadata();
+    location.reload();
+}
+
+function restoreNotebook(id) {
+    const key = String(id);
+    let notebook = notebooks.find(item => String(item.id) === key);
+    if (!notebook) {
+        notebook = {
+            id: /^\d+$/.test(key) ? Number(key) : key,
+            title: 'Wiederhergestelltes Notizbuch',
+            template: 'Leer',
+            date: new Date().toLocaleDateString('de-DE')
+        };
+        notebooks.push(notebook);
     }
+    delete notebookTombstones[key];
+    notebook.updatedAt = new Date().toISOString();
+    saveNotebookTombstones();
+    saveNotebookMetadata(notebook.id);
+    renderTrash();
+    loadNotebooksToDashboard();
+}
+
+async function permanentlyDeleteNotebook(id) {
+    const key = String(id);
+    if (!confirm('Dieses Notizbuch und alle Seiten endgültig löschen?')) return;
+
+    notebookPurgeTombstones[key] = new Date().toISOString();
+    delete notebookTombstones[key];
+    notebooks = notebooks.filter(item => String(item.id) !== key);
+    saveNotebookTombstones();
+    saveNotebookPurgeTombstones();
+    saveNotebookMetadata();
+    renderTrash();
+
+    try {
+        await ensureNotebookStorage();
+        const hasCloudData = Boolean(localStorage.getItem('mynotes_cloud_owner') || (cloudClient && cloudSession));
+        if (!hasCloudData) {
+            await notebookDb.pages.where('notebookId').equals(key).delete();
+            delete notebookPurgeTombstones[key];
+            saveNotebookPurgeTombstones();
+        } else if (cloudClient && cloudSession && navigator.onLine) {
+            await syncCloudData();
+        } else {
+            setCloudStatus('Endgültige Löschung vorgemerkt. Bitte verbinde dich mit deinem Konto und dem Internet, um sie auch in der Cloud abzuschließen.');
+        }
+    } catch (error) {
+        console.error('Notizbuch konnte nicht endgültig gelöscht werden:', error);
+        alert(`Das Notizbuch bleibt zur Sicherheit vorgemerkt, konnte aber noch nicht endgültig gelöscht werden: ${error.message || error}`);
+    }
+    renderTrash();
 }
 
 function saveNotebookContent(id) {
     closeMenu();
+    if (isNotebookReadOnly) return;
     const contentElement = document.getElementById('notebookContent');
     if (!contentElement) return;
     persistNotebookPages();
@@ -2771,15 +3150,18 @@ function loadNotebooksToDashboard() {
     
     if (!section || !list) return;
 
-    if (notebooks.length === 0) {
+    const activeNotebooks = notebooks.filter(notebook =>
+        !notebookTombstones[String(notebook.id)] && !notebookPurgeTombstones[String(notebook.id)]
+    );
+    list.innerHTML = '';
+    if (activeNotebooks.length === 0) {
         section.classList.add('hidden');
         return;
     }
 
     section.classList.remove('hidden');
-    list.innerHTML = '';
 
-    notebooks.forEach(nb => {
+    activeNotebooks.forEach(nb => {
         const card = document.createElement('div');
         card.className = "bg-white border border-slate-200 rounded-xl md:rounded-2xl p-2.5 hover:shadow-md transition-all cursor-pointer flex flex-col justify-between";
         card.onclick = () => openNotebook(nb.id);
@@ -2797,7 +3179,52 @@ function loadNotebooksToDashboard() {
     });
 }
 
+function renderTrash() {
+    const list = document.getElementById('trashNotebookList');
+    const emptyState = document.getElementById('trashEmptyState');
+    if (!list || !emptyState) return;
+
+    const deletedIds = Object.keys(notebookTombstones)
+        .filter(id => !notebookPurgeTombstones[id])
+        .sort((first, second) => Date.parse(notebookTombstones[second]) - Date.parse(notebookTombstones[first]));
+    list.replaceChildren();
+    emptyState.classList.toggle('hidden', deletedIds.length > 0);
+
+    deletedIds.forEach(id => {
+        const notebook = notebooks.find(item => String(item.id) === id);
+        const card = document.createElement('article');
+        card.className = 'trash-notebook-card';
+
+        const details = document.createElement('div');
+        const title = document.createElement('h3');
+        title.className = 'trash-notebook-title';
+        title.textContent = notebook?.title || 'Gelöschtes Notizbuch';
+        const date = document.createElement('p');
+        date.className = 'trash-notebook-date';
+        const deletedDate = new Date(notebookTombstones[id]);
+        date.textContent = `Gelöscht am ${Number.isNaN(deletedDate.getTime()) ? 'unbekannten Datum' : deletedDate.toLocaleDateString('de-DE')}`;
+        details.append(title, date);
+
+        const actions = document.createElement('div');
+        actions.className = 'trash-notebook-actions';
+        const restoreButton = document.createElement('button');
+        restoreButton.type = 'button';
+        restoreButton.className = 'trash-restore-button';
+        restoreButton.textContent = 'Wiederherstellen';
+        restoreButton.addEventListener('click', () => restoreNotebook(id));
+        const deleteButton = document.createElement('button');
+        deleteButton.type = 'button';
+        deleteButton.className = 'trash-delete-button';
+        deleteButton.textContent = 'Endgültig löschen';
+        deleteButton.addEventListener('click', () => void permanentlyDeleteNotebook(id));
+        actions.append(restoreButton, deleteButton);
+        card.append(details, actions);
+        list.appendChild(card);
+    });
+}
+
 loadNotebooksToDashboard();
+renderTrash();
 void initializeSupabaseCloud();
 
 if ('serviceWorker' in navigator) {
