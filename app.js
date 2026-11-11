@@ -2814,9 +2814,6 @@ async function openNotebook(id) {
                     <button class="editor-top-button" data-editor-action="search" title="Suche" aria-label="Suche">
                         <i data-lucide="search" class="w-5 h-5"></i>
                     </button>
-                    <button class="editor-top-button text-amber-300" title="KI-Werkzeuge" aria-label="KI-Werkzeuge">
-                        <i data-lucide="sparkles" class="w-5 h-5"></i>
-                    </button>
                 </div>
 
                 <div class="editor-main-tools flex items-center gap-1 md:gap-2">
@@ -2974,6 +2971,7 @@ async function openNotebook(id) {
                 </div>
                 <div class="editor-floating-toolbar">
                     <button class="floating-tool toolbar-delete-tool" data-editor-action="delete-selected-shape" aria-label="Ausgewählte Form löschen" title="Ausgewählte Form löschen" disabled><i data-lucide="trash-2"></i></button>
+                    <button class="floating-tool" data-editor-tool="lasso" aria-label="Formen, Smileys und Bilder auswählen und bearbeiten" title="Auswählen und bearbeiten"><i data-lucide="mouse-pointer-2"></i></button>
                     <div class="toolbar-dropdown-group">
                         <button id="penToolTrigger" class="floating-tool" data-editor-tool="pen" data-toolbar-group="pen" data-toolbar-dropdown-toggle="penOptions" aria-label="Stift: Kugelschreiber" aria-expanded="false" aria-controls="penOptions" title="Kugelschreiber">
                             <span class="toolbar-pen-icon is-visible" data-pen-icon="pen"><i data-lucide="pen-tool"></i></span>
