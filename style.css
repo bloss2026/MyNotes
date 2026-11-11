@@ -1056,24 +1056,24 @@ textarea:focus-visible {
     touch-action: pan-y;
 }
 
+.editor-canvas-area.is-zoomed {
+    touch-action: none;
+}
+
 .notebook-page {
     position: relative;
-    width: min(72vw, 750px);
-    min-width: 480px;
+    width: var(--page-width, 595px);
+    max-width: 100%;
+    min-width: 0;
     min-height: 0;
-    height: 100%;
+    height: auto;
+    align-self: flex-start;
     flex: 0 0 auto;
-    aspect-ratio: 0.76;
+    aspect-ratio: var(--page-aspect, 595 / 842);
     overflow: hidden;
     transform-origin: top left;
     border: 1px solid #aeb0b2;
-    background-color: #f8f7e9;
     box-shadow: 0 2px 5px #00000030;
-}
-
-.notebook-page.max-w-4xl {
-    width: min(88vw, 1050px);
-    aspect-ratio: 1.414;
 }
 
 .notebook-background {
@@ -1415,6 +1415,158 @@ textarea:focus-visible {
     font-weight: 600;
 }
 
+.notebook-card {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    background: #fff;
+    color: #1e293b;
+    text-align: left;
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.notebook-card:hover {
+    transform: translateY(-3px);
+    border-color: #cbd5e1;
+    box-shadow: 0 12px 26px #0f172a14;
+}
+
+.notebook-card:focus-visible {
+    outline: 3px solid #93c5fd;
+    outline-offset: 2px;
+}
+
+.notebook-cover-stage {
+    display: grid;
+    min-height: 184px;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 12px;
+    background:
+        radial-gradient(ellipse at 50% 88%, #33415522, transparent 48%),
+        linear-gradient(145deg, #f8fafc, #eef2f7);
+}
+
+.notebook-cover-preview {
+    position: relative;
+    display: flex;
+    width: min(72%, 156px);
+    aspect-ratio: 0.72;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+    padding: 18px 14px 16px 19px;
+    border-radius: 6px 12px 12px 6px;
+    box-shadow: 7px 8px 14px #0f172a30, inset 4px 0 0 #ffffff66;
+    color: #fff;
+}
+
+.notebook-cover-preview::before {
+    position: absolute;
+    top: 12px;
+    bottom: 12px;
+    left: 13px;
+    width: 1px;
+    background: #ffffff55;
+    content: "";
+}
+
+.notebook-cover-preview::after {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(135deg, #ffffff24, transparent 48%, #00000012);
+    content: "";
+    pointer-events: none;
+}
+
+.notebook-cover-preview.cover-simple,
+.notebook-cover-preview.cover-linen {
+    color: #3f3426;
+}
+
+.notebook-cover-brand,
+.notebook-cover-label,
+.notebook-cover-title {
+    position: relative;
+    z-index: 1;
+    display: block;
+}
+
+.notebook-cover-brand {
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    opacity: 0.7;
+}
+
+.notebook-cover-label {
+    margin-top: auto;
+    padding-top: 20px;
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    opacity: 0.72;
+}
+
+.notebook-cover-title {
+    display: -webkit-box;
+    overflow: hidden;
+    margin-top: 5px;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+}
+
+.notebook-card-details {
+    display: grid;
+    min-width: 0;
+    gap: 7px;
+    padding: 0 2px 2px;
+}
+
+.notebook-card-title {
+    overflow: hidden;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.notebook-card-metadata {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    color: #64748b;
+    font-size: 11px;
+}
+
+.notebook-card-template {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.notebook-card-format {
+    flex: 0 0 auto;
+    padding: 3px 7px;
+    border-radius: 9999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 10px;
+    font-weight: 600;
+}
+
 .trash-notebook-list {
     display: grid;
     gap: 12px;
@@ -1742,16 +1894,6 @@ textarea:focus-visible {
         padding-top: 60px;
     }
 
-    .notebook-page {
-        width: min(82vw, 750px);
-        min-width: 360px;
-    }
-
-    .notebook-page.max-w-4xl {
-        width: min(92vw, 900px);
-        min-width: 500px;
-    }
-
     #notebookOptionsMenu {
         top: 66px;
         right: 8px;
@@ -1871,16 +2013,6 @@ textarea:focus-visible {
     .editor-canvas-area {
         justify-content: flex-start;
         padding: 0 12px 24px;
-    }
-
-    .notebook-page {
-        width: calc(100vw - 24px);
-        min-width: calc(100vw - 24px);
-    }
-
-    .notebook-page.max-w-4xl {
-        width: 92vw;
-        min-width: 92vw;
     }
 
     .notebook-page textarea {

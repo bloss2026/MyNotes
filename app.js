@@ -1275,6 +1275,23 @@ function getNotebookPages(notebook) {
     return notebook.pages;
 }
 
+function getNotebookPageDimensions(pageSize, orientation) {
+    const sizes = {
+        'Goodnotes Standard': [595, 842],
+        A7: [210, 298],
+        A6: [298, 420],
+        A5: [420, 595],
+        A4: [595, 842],
+        A3: [842, 1191],
+        'Letter-Format': [612, 792],
+        'Tabloid-Format': [792, 1224]
+    };
+    const [portraitWidth, portraitHeight] = sizes[pageSize] || sizes['Goodnotes Standard'];
+    return orientation === 'landscape'
+        ? { width: portraitHeight, height: portraitWidth }
+        : { width: portraitWidth, height: portraitHeight };
+}
+
 function persistNotebookPages() {
     if (isNotebookReadOnly) return;
     const notebook = notebooks.find(item => item.id === currentNotebookId);
@@ -1296,9 +1313,15 @@ function persistNotebookPages() {
 function setNotebookBackground(page) {
     const background = document.getElementById('notebookBackground');
     const pageElement = document.getElementById('notebookPage');
-    if (pageElement && page?.orientation) {
-        pageElement.classList.toggle('max-w-4xl', page.orientation === 'landscape');
-        pageElement.classList.toggle('max-w-2xl', page.orientation !== 'landscape');
+    const notebook = notebooks.find(item => item.id === currentNotebookId);
+    if (pageElement) {
+        const dimensions = getNotebookPageDimensions(
+            page?.pageSize || notebook?.pageSize,
+            page?.orientation || notebook?.orientation
+        );
+        pageElement.style.setProperty('--page-width', `${dimensions.width}px`);
+        pageElement.style.setProperty('--page-aspect', `${dimensions.width} / ${dimensions.height}`);
+        pageElement.style.aspectRatio = `${dimensions.width} / ${dimensions.height}`;
     }
     if (!background) return;
     if (page?.backgroundDataUrl) {
@@ -1800,6 +1823,7 @@ function attachEditorInteractions() {
         if (!page || !pinchGesture) return;
         currentPageZoom = Math.max(1, Math.min(3, zoom));
         page.style.transform = currentPageZoom === 1 ? '' : `scale(${currentPageZoom})`;
+        canvasArea.classList.toggle('is-zoomed', currentPageZoom > 1);
         const zoomIndicator = document.getElementById('pageZoomIndicator');
         if (zoomIndicator) zoomIndicator.textContent = `${Math.round(currentPageZoom * 100)}%`;
         const areaBounds = canvasArea.getBoundingClientRect();
@@ -2445,11 +2469,11 @@ async function exportNotebookPdf() {
         const font = await pdf.embedFont(PDFLib.StandardFonts.Helvetica);
 
         for (const pageData of pages) {
-            const landscape = pageData.orientation
-                ? pageData.orientation === 'landscape'
-                : notebook.orientation === 'landscape';
-            const width = landscape ? 842 : 595;
-            const height = landscape ? 595 : 842;
+            const orientation = pageData.orientation || notebook.orientation;
+            const { width, height } = getNotebookPageDimensions(
+                pageData.pageSize || notebook.pageSize,
+                orientation
+            );
             const page = pdf.addPage([width, height]);
             let pageBackground = null;
             if (pageData.backgroundDataUrl) {
@@ -2707,7 +2731,6 @@ async function openNotebook(id) {
     if (!paperPatternClass && nb.template === "Kariert") paperPatternClass = "paper-grid";
     const paperColorClass = `paper-color-${nb.paperColor || 'gelb'}`;
     const paperTextClass = nb.paperColor === 'dunkel' ? 'paper-text-dark' : 'paper-text-light';
-    const pageWidthClass = nb.orientation === 'landscape' ? 'max-w-4xl' : 'max-w-2xl';
 
     const mainContainer = document.querySelector('main');
     mainContainer.innerHTML = `
@@ -2980,7 +3003,7 @@ async function openNotebook(id) {
                     <button class="editor-add-page" data-editor-action="add-page"><i data-lucide="plus"></i> Seite hinzufügen</button>
                 </aside>
                 <div class="editor-canvas-area">
-                    <div id="notebookPage" class="notebook-page ${pageWidthClass} ${paperColorClass} ${paperPatternClass}">
+                    <div id="notebookPage" class="notebook-page ${paperColorClass} ${paperPatternClass}">
                         <img id="notebookBackground" class="notebook-background hidden" alt="">
                         <textarea id="notebookContent" class="${paperTextClass}" aria-label="Notizen auf dieser Seite"></textarea>
                         <canvas id="notebookDrawing" aria-label="Zeichenfläche"></canvas>
@@ -3162,19 +3185,45 @@ function loadNotebooksToDashboard() {
     section.classList.remove('hidden');
 
     activeNotebooks.forEach(nb => {
-        const card = document.createElement('div');
-        card.className = "bg-white border border-slate-200 rounded-xl md:rounded-2xl p-2.5 hover:shadow-md transition-all cursor-pointer flex flex-col justify-between";
-        card.onclick = () => openNotebook(nb.id);
-        card.innerHTML = `
-            <div class="notebook-cover-preview h-24 md:h-32 ${getCoverClass(nb.cover)} rounded-lg md:rounded-xl shadow-sm mb-2 p-2 flex flex-col justify-between">
-                <span class="text-[8px] md:text-[10px] font-bold text-amber-900/60 uppercase">MyNotes</span>
-                <span class="text-xs font-semibold text-slate-700 truncate">${nb.title}</span>
-            </div>
-            <div>
-                <h4 class="text-xs font-bold text-slate-800 truncate">${nb.title}</h4>
-                <p class="text-[9px] md:text-[10px] text-slate-400">${nb.template}</p>
-            </div>
-        `;
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'notebook-card';
+        card.setAttribute('aria-label', `Notizbuch ${nb.title} öffnen`);
+        card.addEventListener('click', () => openNotebook(nb.id));
+
+        const coverStage = document.createElement('span');
+        coverStage.className = 'notebook-cover-stage';
+        const cover = document.createElement('span');
+        cover.className = `notebook-cover-preview ${getCoverClass(nb.cover)}`;
+        cover.setAttribute('aria-hidden', 'true');
+        const brand = document.createElement('span');
+        brand.className = 'notebook-cover-brand';
+        brand.textContent = 'MYNOTES';
+        const coverLabel = document.createElement('span');
+        coverLabel.className = 'notebook-cover-label';
+        coverLabel.textContent = 'NOTIZBUCH';
+        const coverTitle = document.createElement('span');
+        coverTitle.className = 'notebook-cover-title';
+        coverTitle.textContent = nb.title;
+        cover.append(brand, coverLabel, coverTitle);
+        coverStage.appendChild(cover);
+
+        const details = document.createElement('span');
+        details.className = 'notebook-card-details';
+        const title = document.createElement('span');
+        title.className = 'notebook-card-title';
+        title.textContent = nb.title;
+        const metadata = document.createElement('span');
+        metadata.className = 'notebook-card-metadata';
+        const template = document.createElement('span');
+        template.className = 'notebook-card-template';
+        template.textContent = nb.template || 'Notizbuch';
+        const format = document.createElement('span');
+        format.className = 'notebook-card-format';
+        format.textContent = !nb.pageSize || nb.pageSize === 'Standard' ? 'Goodnotes Standard' : nb.pageSize;
+        metadata.append(template, format);
+        details.append(title, metadata);
+        card.append(coverStage, details);
         list.appendChild(card);
     });
 }
