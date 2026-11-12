@@ -16,6 +16,7 @@
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js" crossorigin="anonymous"></script>
     <script src="https://unpkg.com/dexie@3.2.7/dist/dexie.js" crossorigin="anonymous"></script>
@@ -23,6 +24,12 @@
     <!-- Manifest PWA -->
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="notebook-create.css">
+    <link rel="stylesheet" href="editor.css">
+    <link rel="stylesheet" href="dashboard.css">
+    <link rel="stylesheet" href="editor-panels.css">
+    <link rel="stylesheet" href="overlays.css">
+    <link rel="stylesheet" href="pdf-workspace.css">
 </head>
 <body class="bg-slate-50 text-slate-800 h-full flex flex-col md:flex-row overflow-hidden font-sans select-none">
 
@@ -31,6 +38,9 @@
         <div class="flex items-center gap-2">
             <button id="toggleMenuBtn" class="p-2 text-slate-600 hover:bg-slate-100 rounded-xl">
                 <i data-lucide="menu" class="w-6 h-6"></i>
+            </button>
+            <button id="mobileSearchBtn" type="button" class="p-2 text-slate-600 hover:bg-slate-100 rounded-xl" aria-label="Notizen suchen">
+                <i data-lucide="search" class="w-5 h-5"></i>
             </button>
             <div class="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">MN</div>
             <span class="font-bold text-slate-900 tracking-tight">MyNotes</span>
@@ -61,9 +71,12 @@
                 <a id="documentsNav" href="#documents" aria-current="page" class="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-200/70 text-slate-900 font-medium text-sm">
                     <i data-lucide="folder" class="w-4 h-4 text-blue-600"></i> Dokumente
                 </a>
-                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors">
+                <a id="favoritesNav" href="#favorites" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors">
                     <i data-lucide="star" class="w-4 h-4"></i> Favoriten
                 </a>
+                <button id="flashcardsNav" type="button" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors text-left">
+                    <i data-lucide="layers-3" class="w-4 h-4"></i> Lernkarten
+                </button>
                 <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors">
                     <i data-lucide="share-2" class="w-4 h-4"></i> Geteilt
                 </a>
@@ -72,6 +85,7 @@
                     <span class="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">50+</span>
                 </a>
             </nav>
+            <div id="folderNavList" class="folder-nav-list" aria-label="Ordner"></div>
         </div>
 
         <div>
@@ -98,7 +112,7 @@
             <div class="flex items-center gap-4 relative">
                 <div class="relative">
                     <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
-                    <input type="text" placeholder="Suchen..." class="pl-9 pr-4 py-1.5 bg-slate-100 border-none rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 w-64">
+                    <input id="globalSearchTrigger" type="search" placeholder="Notizen suchen..." aria-label="Notizbücher und Textseiten durchsuchen" class="pl-9 pr-4 py-1.5 bg-slate-100 border-none rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 w-64">
                 </div>
                 <button class="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-colors">
                     <i data-lucide="settings" class="w-5 h-5"></i>
@@ -124,13 +138,27 @@
                 <div>
                     <h2 class="text-lg md:text-xl font-bold text-slate-900">Keine leere Seite mehr</h2>
                     <p class="text-xs md:text-sm text-slate-500">Lege mit einer Vorlage los</p>
+                    <button id="pdfWorkspaceOpen" type="button" class="pdf-workspace-launch">
+                        <i data-lucide="columns-2" aria-hidden="true"></i>
+                        PDF-Arbeitsbereich
+                    </button>
                 </div>
 
                 <!-- Deine Notizbücher Sektion -->
                 <div id="userNotebooksSection" class="hidden">
-                    <h3 class="text-xs md:text-sm font-semibold text-slate-500 mb-3 md:mb-4">Deine Notizbücher</h3>
+                    <div class="notebook-list-heading">
+                        <h3 class="text-xs md:text-sm font-semibold text-slate-500">Deine Notizbücher</h3>
+                        <label class="notebook-sort-control">Sortieren
+                            <select id="notebookSortSelect" aria-label="Notizbücher sortieren">
+                                <option value="updated">Zuletzt geändert</option>
+                                <option value="created">Zuletzt hinzugefügt</option>
+                                <option value="title">Name A–Z</option>
+                            </select>
+                        </label>
+                    </div>
                     <div id="notebooksList" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4"></div>
                 </div>
+                <p id="notebooksEmptyState" class="hidden rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500"></p>
             </div>
         </div>
 
@@ -173,8 +201,192 @@
             </div>
             <div id="cloudAccountPanel" class="cloud-account-panel hidden">
                 <p>Eingeloggt als <strong id="cloudAccountEmail"></strong></p>
+                <button id="cloudConflictsButton" type="button" class="hidden">Synchronisierungskonflikte</button>
                 <button id="cloudSyncNow" type="button">Jetzt synchronisieren</button>
                 <button id="cloudSignOut" type="button">Abmelden</button>
+            </div>
+        </section>
+    </div>
+
+    <div id="syncConflictModal" class="sync-conflict-modal hidden" role="dialog" aria-modal="true" aria-labelledby="syncConflictTitle">
+        <section class="sync-conflict-dialog">
+            <header>
+                <div>
+                    <h2 id="syncConflictTitle">Synchronisierungskonflikte</h2>
+                    <p>Wähle für jedes betroffene Notizbuch, welche Version erhalten bleiben soll.</p>
+                </div>
+                <button id="syncConflictClose" type="button" aria-label="Konflikte schließen">×</button>
+            </header>
+            <div id="syncConflictList" class="sync-conflict-list"></div>
+        </section>
+    </div>
+
+    <div id="globalSearchModal" class="global-search-modal hidden" role="dialog" aria-modal="true" aria-labelledby="globalSearchTitle">
+        <section class="global-search-dialog">
+            <header class="global-search-header">
+                <div>
+                    <h2 id="globalSearchTitle">In deinen Notizen suchen</h2>
+                    <p>Notizbuchnamen und gespeicherte Textseiten</p>
+                </div>
+                <button id="globalSearchClose" type="button" aria-label="Suche schließen">×</button>
+            </header>
+            <label class="sr-only" for="globalSearchInput">Suchbegriff</label>
+            <input id="globalSearchInput" type="search" autocomplete="off" placeholder="Suchbegriff eingeben">
+            <p id="globalSearchStatus" class="global-search-status" role="status" aria-live="polite">Suchbegriff eingeben.</p>
+            <div id="globalSearchResults" class="global-search-results"></div>
+        </section>
+    </div>
+
+    <div id="pdfWorkspaceModal" class="pdf-workspace-modal hidden" role="dialog" aria-modal="true" aria-labelledby="pdfWorkspaceTitle">
+        <section class="pdf-workspace-dialog">
+            <header class="pdf-workspace-header">
+                <div>
+                    <h2 id="pdfWorkspaceTitle">PDF-Arbeitsbereich</h2>
+                    <p>Dokumente vergleichen, Zitatkarten speichern und Textstellen verknüpfen</p>
+                </div>
+                <div class="pdf-workspace-header-actions">
+                    <button id="pdfWorkspaceHelpOpen" type="button" aria-expanded="false" aria-controls="pdfWorkspaceHelp">Anleitung</button>
+                    <button id="pdfWorkspaceClose" type="button" aria-label="PDF-Arbeitsbereich schließen">×</button>
+                </div>
+            </header>
+            <section id="pdfWorkspaceHelp" class="pdf-workspace-help hidden" aria-labelledby="pdfWorkspaceHelpTitle">
+                <div class="pdf-workspace-help-heading">
+                    <h3 id="pdfWorkspaceHelpTitle">Anleitung zum PDF-Arbeitsbereich</h3>
+                    <button id="pdfWorkspaceHelpClose" type="button" aria-label="Anleitung schließen">×</button>
+                </div>
+                <div class="pdf-workspace-help-content">
+                    <section>
+                        <h4>PDF importieren und öffnen</h4>
+                        <ol>
+                            <li>Gehe zur Dokumentübersicht und wähle <strong>Neu → Import</strong>.</li>
+                            <li>Wähle eine PDF-Datei. Sie wird als Notizbuch gespeichert; das Original bleibt separat erhalten.</li>
+                            <li>Kehre hierher zurück, wähle das PDF bei <strong>PDF hinzufügen</strong> und tippe auf <strong>Öffnen</strong>. Weitere PDFs kannst du genauso hinzufügen.</li>
+                        </ol>
+                    </section>
+                    <section>
+                        <h4>Seiten und Ansicht</h4>
+                        <p>Jedes Dokument hat eigene Seitensteuerung und Zoom. Mit <strong>‹</strong> und <strong>›</strong> oder dem Seitenfeld wechselst du die Seite. Mit den Pfeilen im Dokumentkopf ordnest du PDFs nebeneinander neu; <strong>Schließen</strong> entfernt eines aus der Ansicht.</p>
+                    </section>
+                    <section>
+                        <h4>Zitatkarten speichern</h4>
+                        <ol>
+                            <li>Markiere Text direkt auf einer PDF-Seite mit Maus oder Touch.</li>
+                            <li>Tippe bei diesem Dokument auf <strong>Zitat speichern</strong>, ergänze optional eine Notiz und Schlagwörter und speichere die Karte.</li>
+                            <li>Gespeicherte Zitatkarten erscheinen unter den Dokumenten. Über <strong>Zitat öffnen</strong> springst du zur markierten Textstelle.</li>
+                        </ol>
+                    </section>
+                    <section>
+                        <h4>Textstellen verknüpfen</h4>
+                        <ol>
+                            <li>Markiere den Ausgangstext und tippe auf <strong>Link-Quelle</strong>.</li>
+                            <li>Markiere den Zieltext in einem geöffneten PDF und tippe dort auf <strong>Link-Ziel</strong>.</li>
+                            <li>Über <strong>Ziel öffnen</strong> bei der gespeicherten Verknüpfung springst du zum Ziel.</li>
+                        </ol>
+                    </section>
+                    <section>
+                        <h4>Gescannte PDFs durchsuchen</h4>
+                        <p>Wähle die OCR-Sprache und tippe beim gewünschten Dokument auf <strong>OCR-Seite</strong>. Der erkannte Text wird lokal gespeichert und kann danach über die globale Suche gefunden werden. Sprachdaten müssen für den ersten OCR-Lauf online geladen werden.</p>
+                    </section>
+                    <p class="pdf-workspace-help-note"><strong>Hinweis:</strong> Dieser Arbeitsbereich dient zum Vergleichen, Zitieren, Verknüpfen und Durchsuchen von PDFs. Zum Schreiben, Markieren oder Zeichnen öffne das importierte PDF-Notizbuch im Editor. Änderungen überschreiben das Original-PDF nicht.</p>
+                </div>
+            </section>
+            <div class="pdf-workspace-toolbar">
+                <label for="pdfWorkspaceDocumentSelect">PDF hinzufügen</label>
+                <select id="pdfWorkspaceDocumentSelect" aria-label="PDF auswählen"></select>
+                <button id="pdfWorkspaceAddDocument" type="button">Öffnen</button>
+                <label for="pdfWorkspaceOcrLanguage">OCR-Sprache</label>
+                <select id="pdfWorkspaceOcrLanguage" aria-label="OCR-Sprache">
+                    <option value="deu">Deutsch</option>
+                    <option value="eng">English</option>
+                </select>
+                <span id="pdfWorkspaceStatus" role="status" aria-live="polite"></span>
+            </div>
+            <div class="pdf-workspace-layout">
+                <div class="pdf-workspace-main">
+                    <div id="pdfWorkspaceDocuments" class="pdf-workspace-documents"></div>
+                    <section class="pdf-workspace-saved">
+                        <div>
+                            <h3>Zitatkarten</h3>
+                            <div id="pdfWorkspaceCitations" class="pdf-workspace-card-list"></div>
+                        </div>
+                        <div>
+                            <h3>Dokumentverknüpfungen</h3>
+                            <div id="pdfWorkspaceLinks" class="pdf-workspace-card-list"></div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+            <div id="pdfCitationEditor" class="pdf-citation-editor hidden" role="dialog" aria-modal="true" aria-labelledby="pdfCitationEditorTitle">
+                <form id="pdfCitationForm" class="pdf-citation-editor-card">
+                    <h3 id="pdfCitationEditorTitle">Zitatkarte speichern</h3>
+                    <label for="pdfCitationNote">Eigene Notiz</label>
+                    <textarea id="pdfCitationNote" rows="3" maxlength="2000"></textarea>
+                    <label for="pdfCitationTags">Schlagwörter (durch Kommas getrennt)</label>
+                    <input id="pdfCitationTags" type="text" maxlength="300">
+                    <div class="pdf-citation-editor-actions">
+                        <button id="pdfCitationCancel" type="button">Abbrechen</button>
+                        <button type="submit">Zitat speichern</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+    </div>
+
+    <div id="flashcardsModal" class="flashcards-modal hidden" role="dialog" aria-modal="true" aria-labelledby="flashcardsTitle">
+        <section class="flashcards-dialog">
+            <header class="flashcards-header">
+                <div>
+                    <h2 id="flashcardsTitle">Lernkarten</h2>
+                    <p>Lokale Karteikarten mit Leitner-Wiederholung</p>
+                </div>
+                <button id="flashcardsClose" type="button" aria-label="Lernkarten schließen">×</button>
+            </header>
+            <p id="flashcardStatus" class="flashcard-status" role="status" aria-live="polite">Lernkarten werden geladen …</p>
+            <div class="flashcards-content">
+                <aside class="flashcards-decks">
+                    <form id="flashcardDeckForm">
+                        <label for="flashcardDeckName">Neuer Lernstapel</label>
+                        <div class="flashcard-inline-form">
+                            <input id="flashcardDeckName" name="name" maxlength="80" placeholder="Stapelname" required>
+                            <button type="submit" aria-label="Lernstapel erstellen">+</button>
+                        </div>
+                    </form>
+                    <div id="flashcardDeckList" class="flashcard-deck-list"></div>
+                </aside>
+                <main class="flashcards-main">
+                    <section id="flashcardEditor" class="flashcard-editor">
+                        <h3>Karte erstellen</h3>
+                        <form id="flashcardForm">
+                            <label for="flashcardFront">Vorderseite</label>
+                            <textarea id="flashcardFront" name="front" rows="3" maxlength="5000" required></textarea>
+                            <label for="flashcardBack">Rückseite</label>
+                            <textarea id="flashcardBack" name="back" rows="3" maxlength="5000" required></textarea>
+                            <button type="submit">Karte hinzufügen</button>
+                        </form>
+                    </section>
+                    <section id="flashcardStudy" class="flashcard-study hidden" aria-live="polite">
+                        <div class="flashcard-study-heading">
+                            <h3>Wiederholung</h3>
+                            <button id="flashcardStudyStart" type="button">Fällige Karten lernen</button>
+                        </div>
+                        <p id="flashcardDueCount"></p>
+                        <article id="flashcardReviewCard" class="flashcard-review-card hidden">
+                            <p id="flashcardSideLabel">Vorderseite</p>
+                            <div id="flashcardReviewText"></div>
+                            <button id="flashcardShowAnswer" type="button">Antwort zeigen</button>
+                            <div id="flashcardRatings" class="flashcard-ratings hidden">
+                                <button type="button" data-rating="again">Nicht gewusst</button>
+                                <button type="button" data-rating="hard">Schwierig</button>
+                                <button type="button" data-rating="good">Gewusst</button>
+                                <button type="button" data-rating="easy">Sehr gut</button>
+                            </div>
+                        </article>
+                    </section>
+                    <section class="flashcard-list-section" aria-label="Karten dieses Lernstapels">
+                        <h3>Karten in diesem Stapel</h3>
+                        <div id="flashcardCardList" class="flashcard-card-list"></div>
+                    </section>
+                </main>
             </div>
         </section>
     </div>
@@ -210,10 +422,11 @@
                     </select>
                     <label class="sr-only" for="colorSelect">Papierfarbe</label>
                     <select id="colorSelect" onchange="updatePaperColorFilter()" class="create-select" aria-label="Papierfarbe">
-                        <option value="alle">Jedes Papier</option>
-                        <option value="gelb">Gelbes Papier</option>
+                        <option value="creme">Creme</option>
                         <option value="weiss">Weißes Papier</option>
+                        <option value="sepia">Sepia</option>
                         <option value="dunkel">Dunkles Papier</option>
+                        <option value="gelb">Gelbes Papier (älterer Stil)</option>
                     </select>
                     <label class="sr-only" for="languageSelect">Sprache</label>
                     <select id="languageSelect" class="create-select" aria-label="Sprache">
@@ -237,6 +450,7 @@
 
     <!-- Scripts -->
     <input id="documentImportInput" type="file" accept=".pdf,.goodnotes,.zip,application/pdf,application/zip" class="hidden" aria-label="PDF oder Goodnotes-Datei importieren">
+    <input id="backupImportInput" type="file" accept=".json,application/json" class="hidden" aria-label="MyNotes JSON-Backup importieren">
     <script>
         window.MYNOTES_SUPABASE_CONFIG = Object.freeze({
             url: 'https://ougmidncnjhnxzffynnr.supabase.co',
@@ -244,5 +458,18 @@
         });
     </script>
     <script src="app.js"></script>
+    <script src="syncManager.js"></script>
+    <script src="templateManager.js"></script>
+    <script src="editorState.js"></script>
+    <script src="audioSync.js"></script>
+    <script src="editorCanvas.js"></script>
+    <script src="editorInput.js"></script>
+    <script src="pdfManager.js"></script>
+    <script src="notebookManager.js"></script>
+    <script src="searchManager.js"></script>
+    <script src="crossLinker.js"></script>
+    <script src="ocrManager.js"></script>
+    <script src="pdfWorkspace.js"></script>
+    <script src="appInit.js"></script>
 </body>
 </html>

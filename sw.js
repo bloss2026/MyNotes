@@ -1,10 +1,31 @@
-const CACHE_NAME = 'mynotes-v24';
+const CACHE_NAME = 'mynotes-v47';
 
 const CORE_ASSETS = [
     './',
     './index.html',
     './style.css',
+    './notebook-create.css',
+    './editor.css',
+    './dashboard.css',
+    './editor-panels.css',
+    './overlays.css',
+    './pdf-workspace.css',
     './app.js',
+    './syncManager.js',
+    './templateManager.js',
+    './editorState.js',
+    './audioSync.js',
+    './editorCanvas.js',
+    './editorInput.js',
+    './pdfManager.js',
+    './notebookManager.js',
+    './searchManager.js',
+    './crossLinker.js',
+    './ocrManager.js',
+    './pdfWorkspace.js',
+    './appInit.js',
+    './flashcards.js',
+    './backupManager.js',
     './manifest.json',
     './icon.svg'
 ];
@@ -18,16 +39,30 @@ const REMOTE_ASSETS = [
     'https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js',
     'https://unpkg.com/perfect-freehand@1.2.2/dist/esm/index.mjs',
     'https://unpkg.com/dexie@3.2.7/dist/dexie.js',
-    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2'
+    'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
+    'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js',
+    'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',
+    'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/tesseract-core.wasm.js',
+    'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/tesseract-core-simd.wasm.js'
 ];
 
 const REMOTE_ASSET_SET = new Set(REMOTE_ASSETS);
+const OCR_LANGUAGE_ASSET_ORIGIN = 'https://tessdata.projectnaptha.com';
 
 self.addEventListener('install', event => {
     event.waitUntil((async () => {
         const cache = await caches.open(CACHE_NAME);
         await cache.addAll(CORE_ASSETS);
-        await cache.addAll(REMOTE_ASSETS.map(url => new Request(url, { mode: 'cors' })));
+        await Promise.all(REMOTE_ASSETS.map(async url => {
+            const request = new Request(url, { mode: 'cors' });
+            try {
+                const response = await fetch(request);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                await cache.put(request, response);
+            } catch (error) {
+                console.warn('Offline-Abhängigkeit konnte nicht vorgeladen werden:', url, error);
+            }
+        }));
         await self.skipWaiting();
     })().catch(error => {
         console.error('MyNotes-Offline-Dateien konnten nicht vollständig vorgeladen werden:', error);
@@ -51,7 +86,9 @@ self.addEventListener('fetch', event => {
 
     const url = new URL(request.url);
     const isLocalAsset = url.origin === self.location.origin;
-    const isRemoteAsset = REMOTE_ASSET_SET.has(url.href);
+    const isOcrLanguageAsset = url.origin === OCR_LANGUAGE_ASSET_ORIGIN &&
+        /^\/4\.0\.0_best\/(deu|eng)\.traineddata\.gz$/.test(url.pathname);
+    const isRemoteAsset = REMOTE_ASSET_SET.has(url.href) || isOcrLanguageAsset;
     if (!isLocalAsset && !isRemoteAsset) return;
 
     event.respondWith((async () => {

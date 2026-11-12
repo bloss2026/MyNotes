@@ -1,0 +1,341 @@
+/* Notizbuch-Erstellung */
+
+.notebook-create-dialog {
+    max-height: 100vh;
+}
+
+.notebook-create-sidebar {
+    width: 100%;
+    overflow-y: auto;
+}
+
+.notebook-create-toolbar {
+    min-height: 72px;
+}
+
+.create-select {
+    max-width: 100%;
+    padding: 9px 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 9999px;
+    background: #fff;
+    color: #1e293b;
+    font-size: 14px;
+}
+
+.orientation-button {
+    display: inline-flex;
+    width: 42px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: #64748b;
+}
+
+.orientation-button svg {
+    width: 19px;
+    height: 19px;
+}
+
+.orientation-button.is-selected {
+    background: #eff6ff;
+    color: #007aff;
+}
+
+.cover-choice {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+    color: #475569;
+    font-size: 12px;
+}
+
+.cover-choice.is-selected {
+    border: 2px solid #007aff;
+    padding: 7px;
+    color: #007aff;
+}
+
+.cover-swatch {
+    display: block;
+    width: 100%;
+    height: 48px;
+    border-radius: 5px;
+    box-shadow: 0 1px 4px #0f172a24;
+}
+
+.cover-simple {
+    background: linear-gradient(90deg, #f8fafc 0 8%, #b6a48b 8% 100%);
+}
+
+.cover-linen {
+    background-color: #b6a48b;
+    background-image: repeating-linear-gradient(0deg, #ffffff12 0 1px, transparent 1px 4px), repeating-linear-gradient(90deg, #0000000c 0 1px, transparent 1px 4px);
+}
+
+.cover-leather {
+    background-color: #6b4f3a;
+    background-image: radial-gradient(#ffffff12 0.7px, transparent 0.8px);
+    background-size: 5px 5px;
+}
+
+.cover-dark {
+    background: linear-gradient(90deg, #e2e8f0 0 8%, #303030 8% 100%);
+}
+
+.paper-preview {
+    width: 100%;
+    background-color: #f8f7e9;
+    transition: aspect-ratio 150ms ease;
+}
+
+.paper-preview[data-cover-class] {
+    border-left: 5px solid #b6a48b;
+}
+
+.template-group {
+    margin-bottom: 30px;
+}
+
+.template-group-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 14px;
+    color: #1e293b;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.template-row {
+    display: flex;
+    gap: 18px;
+    overflow-x: auto;
+    padding: 4px 3px 12px;
+    scrollbar-width: thin;
+}
+
+.template-choice {
+    display: flex;
+    width: 158px;
+    min-width: 132px;
+    flex: 0 0 132px;
+    flex-direction: column;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 8px 10px;
+    border: 2px solid transparent;
+    border-radius: 11px;
+    background: transparent;
+    color: #78716c;
+    font-size: 14px;
+    text-align: center;
+}
+
+.template-choice:hover {
+    background: #f8fafc;
+}
+
+.template-choice.is-selected {
+    border-color: #007aff;
+    color: #007aff;
+}
+
+.template-thumb {
+    display: block;
+    width: 100%;
+    height: 148px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    box-shadow: 0 2px 6px #0f172a1a;
+    transition: width 150ms ease, height 150ms ease;
+}
+
+.template-thumb.is-landscape {
+    width: 100%;
+    height: 96px;
+    margin: 26px 0;
+}
+
+.template-choice-name {
+    min-height: 38px;
+    line-height: 1.35;
+}
+
+.paper-color-gelb {
+    color: #1e293b;
+    background-color: #f8f7e9;
+    --paper-line: #d6d3c4;
+    --paper-dot: #c9c6b7;
+}
+
+.paper-color-weiss {
+    color: #1e293b;
+    background-color: #fff;
+    --paper-line: #d8dce2;
+    --paper-dot: #cbd5e1;
+}
+
+.paper-color-creme {
+    color: #1e293b;
+    background-color: #fffaf0;
+    --paper-line: #e4d8c3;
+    --paper-dot: #d9cdb8;
+}
+
+.paper-color-sepia {
+    color: #352b20;
+    background-color: #eadcc4;
+    --paper-line: #cbb99c;
+    --paper-dot: #b6a384;
+}
+
+.paper-color-dunkel {
+    color: #f8fafc;
+    background-color: #303030;
+    --paper-line: #555;
+    --paper-dot: #666;
+}
+
+.paper-text-dark {
+    color: #f8fafc !important;
+}
+
+.paper-text-light {
+    color: #1e293b !important;
+}
+
+.paper-dotted {
+    background-image: radial-gradient(var(--paper-dot) 0.8px, transparent 0.9px);
+    background-size: 8px 8px;
+}
+
+.paper-lined,
+.paper-lined-narrow,
+.paper-notepad,
+.paper-cornell,
+.paper-column,
+.paper-mixed,
+.paper-three-columns,
+.paper-accounting,
+.paper-month,
+.paper-week,
+.paper-day,
+.paper-month-dark,
+.paper-guitar,
+.paper-music,
+.paper-tabs {
+    background-image: linear-gradient(var(--paper-line) 1px, transparent 1px);
+    background-size: 100% 11px;
+}
+
+.paper-lined-narrow {
+    background-size: 100% 7px;
+}
+
+.paper-grid,
+.paper-accounting,
+.paper-month,
+.paper-week,
+.paper-day,
+.paper-month-dark {
+    background-image:
+        linear-gradient(var(--paper-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
+    background-size: 10px 10px;
+}
+
+.paper-notepad {
+    background-image:
+        linear-gradient(90deg, transparent 0 14%, #e9a1a1 14% 15%, transparent 15%),
+        linear-gradient(var(--paper-line) 1px, transparent 1px);
+}
+
+.paper-cornell {
+    background-image:
+        linear-gradient(90deg, transparent 0 25%, var(--paper-line) 25% 26%, transparent 26%),
+        linear-gradient(var(--paper-line) 1px, transparent 1px);
+    background-size: 100% 11px;
+    background-position: 0 0, 0 0;
+}
+
+.paper-column {
+    background-image: linear-gradient(90deg, transparent 0 50%, var(--paper-line) 50% 51%, transparent 51%);
+}
+
+.paper-mixed {
+    background-image:
+        linear-gradient(90deg, transparent 0 33%, var(--paper-line) 33% 34%, transparent 34%),
+        linear-gradient(var(--paper-line) 1px, transparent 1px);
+}
+
+.paper-three-columns {
+    background-image:
+        linear-gradient(90deg, transparent 0 33%, var(--paper-line) 33% 34%, transparent 34% 66%, var(--paper-line) 66% 67%, transparent 67%),
+        linear-gradient(var(--paper-line) 1px, transparent 1px);
+}
+
+.paper-guitar,
+.paper-tabs {
+    background-image:
+        linear-gradient(var(--paper-line) 1px, transparent 1px),
+        linear-gradient(var(--paper-line) 1px, transparent 1px),
+        linear-gradient(var(--paper-line) 1px, transparent 1px);
+    background-size: 100% 2px, 100% 2px, 100% 2px;
+    background-position: 0 20%, 0 23%, 0 26%;
+}
+
+.paper-month-dark {
+    background-color: #303030;
+}
+
+@media (min-width: 768px) {
+    .notebook-create-sidebar {
+        width: 300px;
+        flex: 0 0 300px;
+    }
+
+    .notebook-create-toolbar {
+        min-height: 72px;
+    }
+}
+
+@media (max-width: 767px) {
+    .notebook-create-sidebar {
+        max-height: 38vh;
+    }
+
+    .notebook-create-sidebar > div:last-child {
+        display: none;
+    }
+
+    .notebook-create-toolbar {
+        gap: 6px;
+    }
+
+    .create-select {
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+
+    .template-thumb {
+        height: 120px;
+    }
+
+    .template-choice {
+        width: 128px;
+        min-width: 118px;
+        flex-basis: 118px;
+        font-size: 12px;
+    }
+}
+
