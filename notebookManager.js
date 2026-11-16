@@ -1,7 +1,13 @@
 // Notebook editor and dashboard operations
+let dashboardRenderSequence = 0;
+
 async function openNotebook(id) {
     let nb = notebooks.find(item => item.id === id);
     if (!nb || notebookTombstones[String(id)] || notebookPurgeTombstones[String(id)]) return;
+    if (document.body.dataset.page !== 'notebook') {
+        window.location.href = `./notebook.html?id=${encodeURIComponent(String(id))}`;
+        return;
+    }
     let hasOriginalPdf = false;
     try {
         await ensureNotebookStorage();
@@ -61,41 +67,27 @@ async function openNotebook(id) {
         <div id="notebookEditor" class="notebook-editor flex flex-col h-full w-full bg-slate-300 overflow-hidden relative">
             
             <!-- 1. Obere Blaue Hauptleiste -->
-            <header class="h-12 bg-[#2b59a2] text-white px-3 flex items-center justify-between shrink-0 z-30 shadow-sm select-none">
-                <div class="flex items-center gap-2 md:gap-3">
-                    <button onclick="location.reload()" class="editor-top-button" title="Zurück zur Dokumentübersicht" aria-label="Zurück zur Dokumentübersicht">
+            <header class="editor-object-topbar h-[50px] w-full bg-[#1E55A0] text-white flex items-center justify-between px-2.5 sm:px-4 shrink-0 z-40 shadow-sm relative select-none">
+                <div class="editor-object-navigation flex items-center gap-1.5 sm:gap-2">
+                    <button onclick="window.location.href='./dashboard.html'" class="editor-top-button" title="Zurück zur Dokumentübersicht" aria-label="Zurück zur Dokumentübersicht">
                         <i data-lucide="home" class="w-5 h-5"></i>
-                    </button>
-                    <button class="editor-new-button" data-editor-action="add-page" title="Neue Seite">
-                        <span>Neu</span><i data-lucide="chevron-down" class="w-4 h-4"></i>
                     </button>
                     <button class="editor-top-button" data-editor-action="toggle-sidebar" title="Seitenübersicht" aria-label="Seitenübersicht">
                         <i data-lucide="panel-left" class="w-5 h-5"></i>
                     </button>
                     <button class="editor-top-button" data-editor-action="toggle-info" title="Dokumentstatus" aria-label="Dokumentstatus">
-                        <i data-lucide="file-check-2" class="w-5 h-5"></i>
+                        <i data-lucide="sparkles" class="w-5 h-5"></i>
                     </button>
-                    <button class="editor-top-button" data-editor-action="search" title="Suche" aria-label="Suche">
-                        <i data-lucide="search" class="w-5 h-5"></i>
+                    <button id="btn-ai" class="editor-top-button" type="button" title="Lokale KI" aria-label="Lokale KI öffnen">
+                        <i data-lucide="sparkles" class="w-5 h-5"></i>
                     </button>
                 </div>
 
-                <div class="editor-main-tools flex items-center gap-1 md:gap-2">
-                    <button class="editor-top-button" data-toolbar-tool="lasso" data-editor-tool="lasso" title="Auswahl (V)" aria-label="Auswahl"><i data-lucide="mouse-pointer-2"></i></button>
-                    <button class="editor-top-button is-active" data-toolbar-tool="pen" data-editor-tool="pen" title="Stift (W)" aria-label="Stift" aria-pressed="true"><i data-lucide="pen-tool"></i></button>
-                    <button class="editor-top-button" data-toolbar-tool="eraser" data-editor-tool="eraser" title="Radierer (E)" aria-label="Radierer"><i data-lucide="eraser"></i></button>
-                    <button class="editor-top-button" data-toolbar-tool="text" data-editor-action="toggle-text" title="Text (T)" aria-label="Text"><i data-lucide="type"></i></button>
-                    <button class="editor-top-button" data-toolbar-tool="objects" data-editor-tool="objects" title="Objekte (M)" aria-label="Objekte"><i data-lucide="smile"></i></button>
-                    <button class="editor-top-button" data-toolbar-tool="image" data-editor-action="choose-image" title="Bilder (I)" aria-label="Bild einfügen"><i data-lucide="image"></i></button>
-                    <button class="editor-top-button" data-toolbar-tool="shapes" data-editor-tool="shapes" title="Formen (S)" aria-label="Formen"><i data-lucide="shapes"></i></button>
-                    <button class="editor-top-button" data-toolbar-tool="sticky" data-editor-tool="sticky" title="Notizzettel (N)" aria-label="Notizzettel"><i data-lucide="message-square"></i></button>
-                    <button class="editor-top-button" data-toolbar-tool="laser" data-editor-tool="laser" title="Laserpointer (L)" aria-label="Laserpointer"><i data-lucide="wand-sparkles"></i></button>
-                    <button class="editor-top-button" data-editor-action="toggle-recording-menu" title="Aufnahme und Werkzeuge" aria-label="Aufnahme und Werkzeuge"><i data-lucide="mic"></i><i data-lucide="chevron-down" class="editor-caret"></i></button>
-                </div>
+                <div class="editor-main-tools" data-shared-editor-tools></div>
 
                 <!-- Rechte Aktionen & Drei-Punkte-Menü -->
-                <div class="flex items-center gap-1 md:gap-2 relative">
-                    <button data-editor-action="add-page" class="editor-top-button" title="Seite hinzufügen" aria-label="Seite hinzufügen"><i data-lucide="file-plus-2"></i></button>
+                <div class="editor-object-actions flex items-center gap-1 sm:gap-2 relative">
+                    <button data-editor-action="add-page" class="editor-top-button" title="Seite hinzufügen" aria-label="Seite hinzufügen"><i data-lucide="circle-plus"></i></button>
                     <button data-editor-action="share" class="editor-top-button" title="Teilen" aria-label="Teilen"><i data-lucide="upload"></i></button>
                     
                     <!-- Trigger Button -->
@@ -113,7 +105,7 @@ async function openNotebook(id) {
 
                         <!-- Suchen / Nur lesen -->
                         <div class="grid grid-cols-2 border-b border-slate-100 py-1 text-center">
-                            <button onclick="alert('Suche-Funktion'); closeMenu();" class="py-2 hover:bg-slate-50 flex flex-col items-center gap-1 text-slate-700 border-r border-slate-100">
+                            <button data-editor-action="search" class="py-2 hover:bg-slate-50 flex flex-col items-center gap-1 text-slate-700 border-r border-slate-100">
                                 <i data-lucide="search" class="w-4 h-4"></i> Suchen
                             </button>
                             <button data-editor-action="toggle-read-only" aria-pressed="false" class="py-2 hover:bg-slate-50 flex flex-col items-center gap-1 text-slate-700">
@@ -355,6 +347,7 @@ async function openNotebook(id) {
             </div>
 
             <div class="editor-workspace">
+                <div data-shared-floating-controls></div>
                 <div id="editorRuler" class="editor-ruler" aria-hidden="true"></div>
                 <aside id="editorPageSidebar" class="editor-page-sidebar">
                     <h2>Seiten</h2>
@@ -380,7 +373,6 @@ async function openNotebook(id) {
                     </div>
                     <div id="editorLaserDot" class="editor-laser-dot" aria-hidden="true"></div>
                 </div>
-                <div id="pageCounter" class="page-counter"></div>
             </div>
             <div id="textBoxModal" class="editor-text-modal" role="dialog" aria-modal="true" aria-labelledby="textBoxModalTitle" aria-hidden="true">
                 <section class="editor-text-modal-card">
@@ -425,6 +417,9 @@ async function openNotebook(id) {
             <input id="editorImageInput" type="file" accept="image/*" class="hidden">
         </div>
     `;
+    window.MyNotesEditorToolbar.mount(mainContainer.querySelector('[data-shared-editor-tools]'), 'notebook');
+    window.MyNotesEditorToolbar.mountFloating(mainContainer.querySelector('[data-shared-floating-controls]'), 'notebook');
+    window.MyNotesEditorToolbar.mountNotebookToolSettings(mainContainer.querySelector('#notebookEditor'));
     document.getElementById('notebookContent').value = pages[0].content || '';
     setNotebookBackground(pages[0]);
     document.getElementById('menuPageCounter').textContent = `1 von ${pages.length}`;
@@ -743,13 +738,16 @@ function loadNotebooksToDashboard() {
     const section = document.getElementById('userNotebooksSection');
     const list = document.getElementById('notebooksList');
     if (!section || !list) return;
+    const renderSequence = ++dashboardRenderSequence;
+    const dashboardFilter = activeDashboardFilter;
+    const dashboardFolder = activeDashboardFolder;
 
     const availableNotebooks = notebooks.filter(notebook =>
         !notebookTombstones[String(notebook.id)] && !notebookPurgeTombstones[String(notebook.id)]
     );
     const activeNotebooks = availableNotebooks.filter(notebook => {
-        if (activeDashboardFilter === 'favorites') return Boolean(notebook.favorite);
-        if (activeDashboardFilter === 'folder') return notebook.folderName === activeDashboardFolder;
+        if (dashboardFilter === 'favorites') return Boolean(notebook.favorite);
+        if (dashboardFilter === 'folder') return notebook.folderName === dashboardFolder;
         return true;
     });
     const sortSelect = document.getElementById('notebookSortSelect');
@@ -771,14 +769,8 @@ function loadNotebooksToDashboard() {
     }
     list.replaceChildren();
     const emptyState = document.getElementById('notebooksEmptyState');
-    const hasFilterWithoutResults = activeDashboardFilter !== 'documents' && activeNotebooks.length === 0;
     section.classList.toggle('hidden', activeNotebooks.length === 0);
-    if (emptyState) {
-        emptyState.classList.toggle('hidden', !hasFilterWithoutResults);
-        emptyState.textContent = activeDashboardFilter === 'favorites'
-            ? 'Noch keine Favoriten. Markiere ein Notizbuch mit dem Stern.'
-            : `Der Ordner „${activeDashboardFolder}“ enthält noch keine Notizbücher.`;
-    }
+    emptyState?.classList.add('hidden');
     renderFolderNavigation();
 
     activeNotebooks.forEach(nb => {
@@ -871,6 +863,142 @@ function loadNotebooksToDashboard() {
         card.append(openButton, actions, folderSelect);
         list.appendChild(card);
     });
+
+    void appendWhiteboardsToDashboard({
+        list,
+        section,
+        emptyState,
+        renderSequence,
+        dashboardFilter,
+        dashboardFolder,
+        notebookCount: activeNotebooks.length
+    }).catch(error => {
+        console.error('Whiteboards konnten nicht im Dashboard geladen werden:', error);
+        if (renderSequence !== dashboardRenderSequence) return;
+        section.classList.toggle('hidden', activeNotebooks.length === 0);
+        if (emptyState && dashboardFilter !== 'documents' && activeNotebooks.length === 0) {
+            emptyState.classList.remove('hidden');
+            emptyState.textContent = dashboardFilter === 'favorites'
+                ? 'Noch keine Favoriten. Markiere ein Notizbuch oder Whiteboard mit dem Stern.'
+                : `Der Ordner „${dashboardFolder}“ enthält noch keine Notizbücher.`;
+        }
+    });
+}
+
+async function appendWhiteboardsToDashboard({
+    list,
+    section,
+    emptyState,
+    renderSequence,
+    dashboardFilter,
+    dashboardFolder,
+    notebookCount
+}) {
+    await ensureNotebookStorage();
+    const boards = (await notebookDb.whiteboards.toArray()).filter(board =>
+        !board.deletedAt &&
+        (dashboardFilter === 'documents' || (dashboardFilter === 'favorites' && Boolean(board.favorite)))
+    );
+    if (renderSequence !== dashboardRenderSequence) return;
+
+    boards.sort((first, second) => {
+        if (notebookSortMode === 'title') {
+            return String(first.title || '').localeCompare(String(second.title || ''), 'de', { sensitivity: 'base' });
+        }
+        const getTime = board => notebookSortMode === 'created'
+            ? Date.parse(board.createdAt || '') || 0
+            : Date.parse(board.updatedAt || '') || 0;
+        return getTime(second) - getTime(first);
+    });
+
+    boards.forEach(board => {
+        const titleText = board.title || 'Unbenanntes Whiteboard';
+        const card = document.createElement('article');
+        card.className = 'notebook-card';
+
+        const openButton = document.createElement('button');
+        openButton.type = 'button';
+        openButton.className = 'notebook-card-open';
+        openButton.setAttribute('aria-label', `Whiteboard ${titleText} öffnen`);
+        openButton.addEventListener('click', () => {
+            window.location.href = `./whiteboard.html?id=${encodeURIComponent(String(board.id))}`;
+        });
+
+        const coverStage = document.createElement('span');
+        coverStage.className = 'notebook-cover-stage';
+        const cover = document.createElement('span');
+        cover.className = 'notebook-cover-preview whiteboard-cover-preview';
+        cover.setAttribute('aria-hidden', 'true');
+        const brand = document.createElement('span');
+        brand.className = 'notebook-cover-brand';
+        brand.textContent = 'MYNOTES';
+        const coverLabel = document.createElement('span');
+        coverLabel.className = 'notebook-cover-label';
+        coverLabel.textContent = 'WHITEBOARD';
+        const coverTitle = document.createElement('span');
+        coverTitle.className = 'notebook-cover-title';
+        coverTitle.textContent = titleText;
+        cover.append(brand, coverLabel, coverTitle);
+        coverStage.appendChild(cover);
+
+        const details = document.createElement('span');
+        details.className = 'notebook-card-details';
+        const title = document.createElement('span');
+        title.className = 'notebook-card-title';
+        title.textContent = titleText;
+        const metadata = document.createElement('span');
+        metadata.className = 'notebook-card-metadata';
+        const type = document.createElement('span');
+        type.className = 'notebook-card-template';
+        type.textContent = 'Whiteboard';
+        const format = document.createElement('span');
+        format.className = 'notebook-card-format';
+        format.textContent = 'Unendliche Fläche';
+        metadata.append(type, format);
+        details.append(title, metadata);
+        openButton.append(coverStage, details);
+
+        const actions = document.createElement('div');
+        actions.className = 'notebook-card-actions';
+        const favoriteButton = document.createElement('button');
+        favoriteButton.type = 'button';
+        favoriteButton.className = `notebook-card-action${board.favorite ? ' is-favorite' : ''}`;
+        favoriteButton.textContent = board.favorite ? '★ Favorit' : '☆ Favorit';
+        favoriteButton.setAttribute('aria-pressed', String(Boolean(board.favorite)));
+        favoriteButton.setAttribute('aria-label', board.favorite ? 'Whiteboard aus Favoriten entfernen' : 'Whiteboard zu Favoriten hinzufügen');
+        favoriteButton.addEventListener('click', () => void toggleWhiteboardFavorite(board.id));
+        actions.appendChild(favoriteButton);
+        card.append(openButton, actions);
+        list.appendChild(card);
+    });
+
+    const hasDocuments = notebookCount + boards.length > 0;
+    section.classList.toggle('hidden', !hasDocuments);
+    if (emptyState) {
+        const hasFilterWithoutResults = dashboardFilter !== 'documents' && !hasDocuments;
+        emptyState.classList.toggle('hidden', !hasFilterWithoutResults);
+        emptyState.textContent = dashboardFilter === 'favorites'
+            ? 'Noch keine Favoriten. Markiere ein Notizbuch oder Whiteboard mit dem Stern.'
+            : `Der Ordner „${dashboardFolder}“ enthält noch keine Notizbücher.`;
+    }
+}
+
+async function toggleWhiteboardFavorite(id) {
+    try {
+        await ensureNotebookStorage();
+        const board = await notebookDb.whiteboards.get(id);
+        if (!board || board.deletedAt) return;
+        await notebookDb.whiteboards.put({
+            ...board,
+            favorite: !board.favorite,
+            updatedAt: new Date().toISOString()
+        });
+        scheduleCloudSync();
+        loadNotebooksToDashboard();
+    } catch (error) {
+        console.error('Whiteboard-Favorit konnte nicht gespeichert werden:', error);
+        alert(`Der Favorit konnte nicht gespeichert werden: ${error.message || error}`);
+    }
 }
 
 function renderTrash() {

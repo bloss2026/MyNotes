@@ -1,0 +1,5659 @@
+<!DOCTYPE html>
+<html lang="de" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>MyNotes - Notizbuch</title>
+    <meta name="description" content="MyNotes – Notizbücher, handschriftliche Notizen und PDF-Import">
+    <meta name="theme-color" content="#2b59a2">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="MyNotes">
+    <link rel="apple-touch-icon" href="./icon.svg">
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js" crossorigin="anonymous"></script>
+    <script src="https://unpkg.com/dexie@3.2.7/dist/dexie.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- Manifest PWA -->
+    <link rel="manifest" href="manifest.json">
+    <style>
+
+/* =====================================
+   MYNOTES – HAUPTSTYLES
+===================================== */
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    min-height: 100%;
+    -webkit-tap-highlight-color: transparent;
+}
+
+body {
+    overflow-x: hidden;
+    font-family: Arial, sans-serif;
+}
+
+/* Scrollleisten */
+
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+/* Übergänge */
+
+.transition-all {
+    transition-property: all;
+    transition-timing-function:
+        cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+}
+
+/* Buttons */
+
+button {
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+    outline: 2px solid #2563eb;
+    outline-offset: 2px;
+}
+
+/* Notizbuch-Papier */
+
+.paper-dotted {
+    background-image:
+        radial-gradient(#94a3b8 1.2px, transparent 1.2px);
+    background-size: 24px 24px;
+}
+
+.paper-lined {
+    background-image:
+        linear-gradient(#e2e8f0 1px, transparent 1px);
+    background-size: 100% 32px;
+}
+
+.paper-grid {
+    background-image:
+        linear-gradient(#e2e8f0 1px, transparent 1px),
+        linear-gradient(90deg, #e2e8f0 1px, transparent 1px);
+    background-size: 24px 24px;
+}
+
+/* Editor */
+
+#notebookContent {
+    display: block;
+    width: 100%;
+    min-height: 70vh;
+    resize: none;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #1e293b;
+    line-height: 1.8;
+    font-family: Arial, sans-serif;
+    user-select: text;
+    -webkit-user-select: text;
+    touch-action: pan-y;
+}
+
+#notebookContent::placeholder {
+    color: #94a3b8;
+}
+
+.notebook-editor.is-read-only #notebookDrawing,
+.notebook-editor.is-read-only #notebookShapes {
+    pointer-events: none !important;
+}
+
+.notebook-editor.is-read-only button:disabled,
+.notebook-editor.is-read-only input:disabled,
+.notebook-editor.is-read-only select:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* Editor-Werkzeugleiste */
+
+.tool-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 34px;
+    min-height: 34px;
+    padding: 6px;
+    border-radius: 9px;
+    color: #475569;
+    background: transparent;
+    border: none;
+    transition: background 0.15s ease;
+}
+
+.tool-button:hover,
+.tool-button:active {
+    background: #e2e8f0;
+}
+
+/* Aktives Werkzeug */
+
+[data-tool].bg-blue-100 {
+    background: #dbeafe !important;
+    color: #1d4ed8 !important;
+}
+
+/* Drei-Punkte-Menü */
+
+#notebookOptionsMenu {
+    max-height: 70vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    z-index: 1000;
+}
+
+.new-dropdown {
+    max-height: min(80vh, 860px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    color: #1e293b;
+}
+
+.new-dropdown-section-title {
+    padding: 10px 24px 6px;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.new-dropdown-item {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    min-height: 48px;
+    padding: 10px 24px;
+    border: 0;
+    background: transparent;
+    color: #1e293b;
+    text-align: left;
+    font-size: 15px;
+}
+
+.new-dropdown-item:hover,
+.new-dropdown-item:focus-visible {
+    background: #f8fafc;
+}
+
+.new-dropdown-item svg {
+    width: 22px;
+    height: 22px;
+    flex: none;
+}
+
+.new-dropdown-badge {
+    margin-left: auto;
+    padding: 5px 12px;
+    border-radius: 9999px;
+    background: #e2e8f0;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.new-dropdown-badge-new {
+    background: #ecfccb;
+    color: #365314;
+}
+
+.new-dropdown-divider {
+    height: 1px;
+    margin: 6px 0;
+    background: #e2e8f0;
+}
+
+.new-dropdown-connect {
+    gap: 12px;
+    min-height: 56px;
+}
+
+.new-dropdown-connect .connect-label {
+    margin-left: auto;
+    color: #78716c;
+    font-size: 13px;
+}
+
+.new-dropdown-tip {
+    padding: 14px 24px;
+    border-top: 1px solid #e2e8f0;
+    color: #78716c;
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+@media (min-width: 768px) {
+    #mobileHeader {
+        display: none !important;
+    }
+
+    #desktopHeader {
+        display: flex !important;
+    }
+}
+
+.menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 12px 16px;
+    background: transparent;
+    border: none;
+    text-align: left;
+    font-size: 13px;
+    color: #334155;
+    touch-action: manipulation;
+}
+
+.menu-item:hover,
+.menu-item:active {
+    background: #f1f5f9;
+}
+
+.menu-item svg {
+    width: 17px;
+    height: 17px;
+}
+
+/* Modal */
+
+#notebookModal {
+    z-index: 2000;
+}
+
+#notebookModal.hidden {
+    display: none !important;
+}
+
+/* Versteckte Elemente */
+
+.hidden {
+    display: none !important;
+}
+
+/* Mobile Anpassungen */
+
+@media (max-width: 640px) {
+
+    .new-dropdown {
+        max-height: calc(100vh - 80px);
+    }
+
+    #notebookContent {
+        min-height: 70vh;
+        font-size: 15px;
+        line-height: 1.8;
+    }
+
+    #notebookOptionsMenu {
+        position: absolute;
+        right: 0;
+        width: min(260px, calc(100vw - 24px));
+    }
+
+    .tool-button {
+        min-width: 36px;
+        min-height: 36px;
+    }
+}
+
+/* Barrierefreiheit */
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+    }
+}
+
+
+</style>
+    <style>
+/* Notizbuch-Erstellung */
+
+.notebook-create-dialog {
+    max-height: 100vh;
+}
+
+.notebook-create-sidebar {
+    width: 100%;
+    overflow-y: auto;
+}
+
+.notebook-create-toolbar {
+    min-height: 72px;
+}
+
+.create-select {
+    max-width: 100%;
+    padding: 9px 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 9999px;
+    background: #fff;
+    color: #1e293b;
+    font-size: 14px;
+}
+
+.orientation-button {
+    display: inline-flex;
+    width: 42px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: #64748b;
+}
+
+.orientation-button svg {
+    width: 19px;
+    height: 19px;
+}
+
+.orientation-button.is-selected {
+    background: #eff6ff;
+    color: #007aff;
+}
+
+.cover-choice {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+    color: #475569;
+    font-size: 12px;
+}
+
+.cover-choice.is-selected {
+    border: 2px solid #007aff;
+    padding: 7px;
+    color: #007aff;
+}
+
+.cover-swatch {
+    display: block;
+    width: 100%;
+    height: 48px;
+    border-radius: 5px;
+    box-shadow: 0 1px 4px #0f172a24;
+}
+
+.cover-simple {
+    background: linear-gradient(90deg, #f8fafc 0 8%, #b6a48b 8% 100%);
+}
+
+.cover-linen {
+    background-color: #b6a48b;
+    background-image: repeating-linear-gradient(0deg, #ffffff12 0 1px, transparent 1px 4px), repeating-linear-gradient(90deg, #0000000c 0 1px, transparent 1px 4px);
+}
+
+.cover-leather {
+    background-color: #6b4f3a;
+    background-image: radial-gradient(#ffffff12 0.7px, transparent 0.8px);
+    background-size: 5px 5px;
+}
+
+.cover-dark {
+    background: linear-gradient(90deg, #e2e8f0 0 8%, #303030 8% 100%);
+}
+
+.paper-preview {
+    width: 100%;
+    background-color: #f8f7e9;
+    transition: aspect-ratio 150ms ease;
+}
+
+.paper-preview[data-cover-class] {
+    border-left: 5px solid #b6a48b;
+}
+
+.template-group {
+    margin-bottom: 30px;
+}
+
+.template-group-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 14px;
+    color: #1e293b;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.template-row {
+    display: flex;
+    gap: 18px;
+    overflow-x: auto;
+    padding: 4px 3px 12px;
+    scrollbar-width: thin;
+}
+
+.template-choice {
+    display: flex;
+    width: 158px;
+    min-width: 132px;
+    flex: 0 0 132px;
+    flex-direction: column;
+    align-items: center;
+    gap: 9px;
+    padding: 8px 8px 10px;
+    border: 2px solid transparent;
+    border-radius: 11px;
+    background: transparent;
+    color: #78716c;
+    font-size: 14px;
+    text-align: center;
+}
+
+.template-choice:hover {
+    background: #f8fafc;
+}
+
+.template-choice.is-selected {
+    border-color: #007aff;
+    color: #007aff;
+}
+
+.template-thumb {
+    display: block;
+    width: 100%;
+    height: 148px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    box-shadow: 0 2px 6px #0f172a1a;
+    transition: width 150ms ease, height 150ms ease;
+}
+
+.template-thumb.is-landscape {
+    width: 100%;
+    height: 96px;
+    margin: 26px 0;
+}
+
+.template-choice-name {
+    min-height: 38px;
+    line-height: 1.35;
+}
+
+.paper-color-gelb {
+    color: #1e293b;
+    background-color: #f8f7e9;
+    --paper-line: #d6d3c4;
+    --paper-dot: #c9c6b7;
+}
+
+.paper-color-weiss {
+    color: #1e293b;
+    background-color: #fff;
+    --paper-line: #d8dce2;
+    --paper-dot: #cbd5e1;
+}
+
+.paper-color-creme {
+    color: #1e293b;
+    background-color: #fffaf0;
+    --paper-line: #e4d8c3;
+    --paper-dot: #d9cdb8;
+}
+
+.paper-color-sepia {
+    color: #352b20;
+    background-color: #eadcc4;
+    --paper-line: #cbb99c;
+    --paper-dot: #b6a384;
+}
+
+.paper-color-dunkel {
+    color: #f8fafc;
+    background-color: #303030;
+    --paper-line: #555;
+    --paper-dot: #666;
+}
+
+.paper-text-dark {
+    color: #f8fafc !important;
+}
+
+.paper-text-light {
+    color: #1e293b !important;
+}
+
+.paper-dotted {
+    background-image: radial-gradient(var(--paper-dot) 0.8px, transparent 0.9px);
+    background-size: 8px 8px;
+}
+
+.paper-lined,
+.paper-lined-narrow,
+.paper-notepad,
+.paper-cornell,
+.paper-column,
+.paper-mixed,
+.paper-three-columns,
+.paper-accounting,
+.paper-month,
+.paper-week,
+.paper-day,
+.paper-month-dark,
+.paper-guitar,
+.paper-music,
+.paper-tabs {
+    background-image: linear-gradient(var(--paper-line) 1px, transparent 1px);
+    background-size: 100% 11px;
+}
+
+.paper-lined-narrow {
+    background-size: 100% 7px;
+}
+
+.paper-grid,
+.paper-accounting,
+.paper-month,
+.paper-week,
+.paper-day,
+.paper-month-dark {
+    background-image:
+        linear-gradient(var(--paper-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--paper-line) 1px, transparent 1px);
+    background-size: 10px 10px;
+}
+
+.paper-notepad {
+    background-image:
+        linear-gradient(90deg, transparent 0 14%, #e9a1a1 14% 15%, transparent 15%),
+        linear-gradient(var(--paper-line) 1px, transparent 1px);
+}
+
+.paper-cornell {
+    background-image:
+        linear-gradient(90deg, transparent 0 25%, var(--paper-line) 25% 26%, transparent 26%),
+        linear-gradient(var(--paper-line) 1px, transparent 1px);
+    background-size: 100% 11px;
+    background-position: 0 0, 0 0;
+}
+
+.paper-column {
+    background-image: linear-gradient(90deg, transparent 0 50%, var(--paper-line) 50% 51%, transparent 51%);
+}
+
+.paper-mixed {
+    background-image:
+        linear-gradient(90deg, transparent 0 33%, var(--paper-line) 33% 34%, transparent 34%),
+        linear-gradient(var(--paper-line) 1px, transparent 1px);
+}
+
+.paper-three-columns {
+    background-image:
+        linear-gradient(90deg, transparent 0 33%, var(--paper-line) 33% 34%, transparent 34% 66%, var(--paper-line) 66% 67%, transparent 67%),
+        linear-gradient(var(--paper-line) 1px, transparent 1px);
+}
+
+.paper-guitar,
+.paper-tabs {
+    background-image:
+        linear-gradient(var(--paper-line) 1px, transparent 1px),
+        linear-gradient(var(--paper-line) 1px, transparent 1px),
+        linear-gradient(var(--paper-line) 1px, transparent 1px);
+    background-size: 100% 2px, 100% 2px, 100% 2px;
+    background-position: 0 20%, 0 23%, 0 26%;
+}
+
+.paper-month-dark {
+    background-color: #303030;
+}
+
+@media (min-width: 768px) {
+    .notebook-create-sidebar {
+        width: 300px;
+        flex: 0 0 300px;
+    }
+
+    .notebook-create-toolbar {
+        min-height: 72px;
+    }
+}
+
+@media (max-width: 767px) {
+    .notebook-create-sidebar {
+        max-height: 38vh;
+    }
+
+    .notebook-create-sidebar > div:last-child {
+        display: none;
+    }
+
+    .notebook-create-toolbar {
+        gap: 6px;
+    }
+
+    .create-select {
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+
+    .template-thumb {
+        height: 120px;
+    }
+
+    .template-choice {
+        width: 128px;
+        min-width: 118px;
+        flex-basis: 118px;
+        font-size: 12px;
+    }
+}
+
+
+</style>
+    <style>
+/* Notizbuch-Editor */
+
+.notebook-editor {
+    background: #e7e7e7;
+    color: #171717;
+}
+
+.notebook-editor > header {
+    min-height: 72px;
+    height: 72px;
+    background: #3565a4;
+}
+
+.editor-top-button,
+.editor-new-button {
+    display: inline-flex;
+    height: 44px;
+    min-width: 42px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 0 9px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: #fff;
+    transition: background 120ms ease;
+}
+
+.editor-top-button:hover,
+.editor-top-button.is-active,
+.editor-new-button:hover {
+    background: #ffffff24;
+}
+
+.editor-top-button svg {
+    width: 23px;
+    height: 23px;
+}
+
+.editor-new-button {
+    font-size: 19px;
+    font-weight: 600;
+}
+
+.editor-main-tools {
+    min-width: 0;
+    justify-content: center;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.editor-main-tools::-webkit-scrollbar {
+    display: none;
+}
+
+.editor-main-tools .editor-top-button {
+    min-width: 42px;
+}
+
+.editor-caret {
+    width: 14px !important;
+    height: 14px !important;
+}
+
+.editor-controls-row {
+    position: absolute;
+    z-index: 20;
+    top: 84px;
+    right: 0;
+    left: 0;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.editor-history-controls {
+    position: absolute;
+    left: 12px;
+    display: flex;
+    padding: 5px;
+    border: 1px solid #d6d6d6;
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 2px 6px #0000000d;
+    pointer-events: auto;
+}
+
+.editor-history-controls button,
+.floating-tool {
+    display: inline-flex;
+    width: 46px;
+    height: 46px;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border: 0;
+    border-radius: 12px;
+    background: transparent;
+    color: #111;
+}
+
+.editor-history-controls button {
+    color: #a3a3a3;
+}
+
+.editor-history-controls svg,
+.floating-tool svg {
+    width: 23px;
+    height: 23px;
+}
+
+.editor-floating-toolbar {
+    display: flex;
+    max-width: calc(100vw - 32px);
+    align-items: center;
+    gap: 3px;
+    overflow: visible;
+    padding: 5px 7px;
+    border: 1px solid #d4d4d4;
+    border-radius: 18px;
+    background: #fffffff5;
+    box-shadow: 0 5px 16px #00000018;
+    pointer-events: auto;
+    scrollbar-width: none;
+}
+
+.editor-floating-toolbar::-webkit-scrollbar {
+    display: none;
+}
+
+.floating-tool.is-active {
+    background: #b7e9f2;
+}
+
+.toolbar-delete-tool {
+    width: 36px;
+    height: 38px;
+    flex: 0 0 auto;
+    border-radius: 10px;
+}
+
+.toolbar-delete-tool:not(:disabled) {
+    color: #dc2626;
+}
+
+.toolbar-dropdown-group {
+    position: relative;
+    display: flex;
+    flex: 0 0 auto;
+}
+
+.toolbar-dropdown-group > .floating-tool {
+    width: 48px;
+    height: 44px;
+    border-radius: 12px;
+}
+
+.toolbar-dropdown-group > .floating-tool:hover,
+.toolbar-dropdown-group > .floating-tool[aria-expanded="true"] {
+    background: #f1f5f9;
+}
+
+.toolbar-dropdown-group > .floating-tool.is-active {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.toolbar-pen-icon {
+    display: none;
+    align-items: center;
+    justify-content: center;
+}
+
+.toolbar-pen-icon.is-visible {
+    display: inline-flex;
+}
+
+.toolbar-dropdown-menu {
+    position: absolute;
+    z-index: 50;
+    top: calc(100% + 8px);
+    left: 0;
+    display: none;
+    width: 200px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 10px 28px #00000024;
+}
+
+.toolbar-dropdown-menu.is-open {
+    display: grid;
+    gap: 7px;
+}
+
+.pen-dropdown-menu {
+    width: 184px;
+    padding: 8px;
+}
+
+.pen-choice-list {
+    display: grid;
+    gap: 3px;
+}
+
+.toolbar-menu-heading {
+    padding: 3px 6px;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.pen-choice {
+    display: flex;
+    width: 100%;
+    min-height: 38px;
+    align-items: center;
+    gap: 10px;
+    padding: 0 9px;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: #334155;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+}
+
+.pen-choice:hover,
+.pen-choice.is-selected {
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.pen-choice.is-pending {
+    outline: 1px solid #93c5fd;
+    background: #dbeafe;
+}
+
+.pen-choice svg {
+    width: 18px;
+    height: 18px;
+    flex: 0 0 auto;
+}
+
+.pen-settings-panel {
+    position: absolute;
+    z-index: 51;
+    top: 0;
+    left: calc(100% + 8px);
+    display: none;
+    width: 215px;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 10px 28px #00000024;
+}
+
+.pen-settings-panel.is-open {
+    display: grid;
+}
+
+.pen-settings-panel h3 {
+    margin: 0 0 2px;
+    color: #1e293b;
+    font-size: 14px;
+}
+
+.toolbar-apply-pen {
+    min-height: 36px;
+    border: 0;
+    border-radius: 9px;
+    background: #2563eb;
+    color: #fff;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.toolbar-apply-pen:hover {
+    background: #1d4ed8;
+}
+
+.toolbar-dropdown-group:last-child .toolbar-dropdown-menu {
+    right: 0;
+    left: auto;
+}
+
+.toolbar-dropdown-menu label {
+    color: #475569;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.toolbar-select {
+    width: 100%;
+    height: 38px;
+    padding: 0 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background-color: #fff;
+    color: #334155;
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.toolbar-select:focus-visible {
+    outline: 2px solid #1685f8;
+    outline-offset: 1px;
+}
+
+.toolbar-popover-divider {
+    height: 1px;
+    margin: 3px 0;
+    background: #e2e8f0;
+}
+
+.toolbar-color-options {
+    display: grid;
+    grid-template-columns: repeat(4, 34px);
+    gap: 8px;
+}
+
+.pen-color {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    border: 1px solid #d1d5db;
+    border-radius: 50%;
+    background: var(--pen-color);
+}
+
+.toolbar-custom-color {
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 50%;
+}
+
+.toolbar-custom-color svg {
+    width: 20px;
+    height: 20px;
+}
+
+.pen-color[data-pen-color="#111111"] {
+    --pen-color: #111;
+}
+
+.pen-color[data-pen-color="#1685f8"] {
+    --pen-color: #1685f8;
+}
+
+.pen-color[data-pen-color="#dc2626"] {
+    --pen-color: #dc2626;
+}
+
+.pen-color[data-pen-color="#16a34a"] {
+    --pen-color: #16a34a;
+}
+
+.pen-color-yellow {
+    --pen-color: #facc15;
+}
+
+.pen-color-white {
+    --pen-color: #fff;
+}
+
+.pen-color.is-color-selected {
+    outline: 3px solid #d4d4d4;
+    outline-offset: 2px;
+}
+
+.editor-workspace {
+    position: relative;
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    padding-top: 60px;
+    background: #e7e7e7;
+}
+
+.editor-canvas-area {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    justify-content: center;
+    overflow: auto;
+    padding: 0 24px 30px;
+    touch-action: pan-y;
+}
+
+.editor-canvas-area.is-zoomed {
+    touch-action: none;
+}
+
+.notebook-page {
+    position: relative;
+    width: var(--page-width, 595px);
+    max-width: 100%;
+    min-width: 0;
+    min-height: 0;
+    height: auto;
+    align-self: flex-start;
+    flex: 0 0 auto;
+    aspect-ratio: var(--page-aspect, 595 / 842);
+    overflow: hidden;
+    transform-origin: top left;
+    border: 1px solid #aeb0b2;
+    box-shadow: 0 2px 5px #00000030;
+}
+
+.notebook-background {
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+    pointer-events: none;
+}
+
+.notebook-page textarea {
+    position: absolute;
+    z-index: 1;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    padding: 44px;
+    border: 0;
+    background: transparent;
+    font-size: 17px;
+    line-height: 1.8;
+}
+
+.notebook-page.paper-dotted {
+    background-image: radial-gradient(var(--paper-dot, #c9c6b7) 1px, transparent 1.2px);
+    background-size: 24px 24px;
+}
+
+.notebook-page.paper-lined,
+.notebook-page.paper-lined-narrow,
+.notebook-page.paper-notepad,
+.notebook-page.paper-cornell,
+.notebook-page.paper-mixed,
+.notebook-page.paper-three-columns,
+.notebook-page.paper-guitar,
+.notebook-page.paper-music,
+.notebook-page.paper-tabs {
+    background-size: 100% 28px;
+}
+
+.notebook-page.paper-lined-narrow {
+    background-size: 100% 18px;
+}
+
+.notebook-page.paper-grid {
+    background-size: 24px 24px;
+}
+
+#notebookDrawing {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    touch-action: none;
+}
+
+#notebookDrawing.is-drawable {
+    pointer-events: auto;
+    cursor: crosshair;
+}
+
+#notebookShapes {
+    position: absolute;
+    z-index: 3;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+    touch-action: none;
+}
+
+#notebookShapes.is-selecting {
+    pointer-events: auto;
+    cursor: move;
+}
+
+#notebookShapes.is-lasso-drawing {
+    cursor: crosshair;
+}
+
+.lasso-contour {
+    fill: #1685f814;
+    stroke: #1685f8;
+    stroke-width: 1.5;
+    stroke-dasharray: 6 4;
+    animation: lasso-marching-ants 0.7s linear infinite;
+    pointer-events: none;
+}
+
+.selection-context-menu {
+    position: fixed;
+    z-index: 2400;
+    display: grid;
+    width: 190px;
+    gap: 2px;
+    padding: 6px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 16px 40px #0f172a30;
+}
+
+.selection-context-menu.hidden {
+    display: none;
+}
+
+.selection-context-menu button {
+    min-height: 38px;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #334155;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+}
+
+.selection-context-menu button:hover,
+.selection-context-menu button:focus-visible {
+    outline: none;
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+@keyframes lasso-marching-ants {
+    to {
+        stroke-dashoffset: -10;
+    }
+}
+
+.notebook-shape {
+    pointer-events: none;
+}
+
+.notebook-stroke {
+    pointer-events: none;
+}
+
+#notebookShapes.is-selecting .notebook-shape,
+#notebookShapes.is-selecting .shape-hit-target,
+.shape-handle {
+    pointer-events: stroke;
+}
+
+#notebookShapes.is-selecting .object-hit-target {
+    fill: transparent;
+    pointer-events: all;
+}
+
+.shape-hit-target {
+    pointer-events: none;
+}
+
+.shape-selection-box {
+    fill: transparent;
+    stroke: #1685f8;
+    stroke-width: 1;
+    stroke-dasharray: 4 3;
+    pointer-events: none;
+}
+
+.shape-handle {
+    fill: #fff;
+    stroke: #1685f8;
+    stroke-width: 1.5;
+    cursor: nwse-resize;
+    pointer-events: all;
+}
+
+.shape-rotate-handle {
+    cursor: grab;
+}
+
+.notebook-text-object {
+    user-select: none;
+    pointer-events: none;
+}
+
+.editor-text-modal {
+    position: absolute;
+    inset: 0;
+    z-index: 60;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: #0f172a66;
+}
+
+.editor-text-modal.is-open {
+    display: flex;
+}
+
+.editor-text-modal-card {
+    display: grid;
+    width: min(460px, 100%);
+    gap: 12px;
+    padding: 20px;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 16px 48px #00000030;
+}
+
+.editor-text-modal-card h2 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 18px;
+}
+
+.editor-text-modal-card label {
+    color: #475569;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.editor-text-modal-card select {
+    width: 100%;
+    min-height: 42px;
+    padding: 8px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    background: #fff;
+    color: #0f172a;
+    font: inherit;
+}
+
+.editor-text-modal-card textarea {
+    width: 100%;
+    min-height: 120px;
+    resize: vertical;
+    padding: 10px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    color: #0f172a;
+    font: inherit;
+}
+
+.editor-text-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.editor-text-modal-actions button {
+    min-height: 40px;
+    padding: 0 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    background: #fff;
+    color: #334155;
+    font-weight: 600;
+}
+
+.editor-text-modal-actions [data-textbox-action="save"],
+.editor-text-modal-actions [data-page-template-action="save"] {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+}
+
+.shape-handle[data-shape-handle="n"],
+.shape-handle[data-shape-handle="s"] {
+    cursor: ns-resize;
+}
+
+.shape-handle[data-shape-handle="e"],
+.shape-handle[data-shape-handle="w"] {
+    cursor: ew-resize;
+}
+
+.shape-handle[data-shape-handle="ne"],
+.shape-handle[data-shape-handle="sw"] {
+    cursor: nesw-resize;
+}
+
+.editor-history-controls button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.editor-floating-toolbar .floating-tool:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.page-counter {
+    position: absolute;
+    z-index: 5;
+    bottom: 28px;
+    left: 30px;
+    padding: 10px 18px;
+    border: 1px solid #e5e5e5;
+    border-radius: 9999px;
+    background: #fff;
+    color: #737373;
+    font-size: 18px;
+    box-shadow: 0 4px 12px #00000010;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.page-counter-button {
+    display: inline-flex;
+    width: 24px;
+    height: 24px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: #475569;
+    font-size: 24px;
+    line-height: 1;
+}
+
+.page-counter-button:hover:not(:disabled) {
+    background: #f1f5f9;
+}
+
+.page-counter-button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.page-zoom-indicator {
+    padding-left: 8px;
+    border-left: 1px solid #e5e7eb;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.cloud-connect-card {
+    margin-bottom: 10px;
+    padding: 10px;
+    border: 1px solid #dbe3ee;
+    border-radius: 14px;
+    background: #fff;
+}
+
+.cloud-connect-button {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 9px;
+    border: 0;
+    background: transparent;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: left;
+}
+
+.cloud-connect-button svg {
+    width: 17px;
+    height: 17px;
+    color: #2b59a2;
+}
+
+#cloudSyncStatus {
+    margin: 5px 0 0 26px;
+    color: #64748b;
+    font-size: 11px;
+}
+
+.cloud-auth-dialog {
+    width: min(100%, 420px);
+    padding: 22px;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 22px 60px #0f172a30;
+}
+
+.cloud-auth-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 20px;
+}
+
+.cloud-auth-heading h2 {
+    margin: 0;
+    color: #1e293b;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.cloud-auth-heading p,
+.cloud-account-panel p {
+    margin: 5px 0 0;
+    color: #64748b;
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+.cloud-auth-close {
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 50%;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 22px;
+    line-height: 1;
+}
+
+.cloud-auth-form {
+    display: grid;
+    gap: 8px;
+}
+
+.cloud-auth-form label {
+    margin-top: 5px;
+    color: #475569;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.cloud-auth-form input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    background: #fff;
+    color: #1e293b;
+    font-size: 16px;
+}
+
+.cloud-auth-form .cloud-remember-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    font-weight: 500;
+}
+
+.cloud-auth-form .cloud-remember-option input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+    accent-color: #2b59a2;
+}
+
+.cloud-auth-actions,
+.cloud-account-panel {
+    display: grid;
+    gap: 9px;
+    margin-top: 12px;
+}
+
+.cloud-auth-actions button,
+.cloud-account-panel button {
+    min-height: 40px;
+    padding: 9px 12px;
+    border: 0;
+    border-radius: 10px;
+    background: #2b59a2;
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+}
+
+.cloud-auth-actions button + button,
+.cloud-account-panel button + button {
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #334155;
+}
+
+.cloud-auth-mode-switch {
+    display: block;
+    margin: 14px auto 0;
+    padding: 4px;
+    border: 0;
+    background: transparent;
+    color: #2b59a2;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+</style>
+    <style>
+.notebook-card {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 9px;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    background: #fff;
+    color: #1e293b;
+    text-align: left;
+    transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.notebook-card-open {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+}
+
+.notebook-card-open:focus-visible {
+    outline: 3px solid #93c5fd;
+    outline-offset: 3px;
+    border-radius: 12px;
+}
+
+.notebook-card:hover {
+    transform: translateY(-3px);
+    border-color: #cbd5e1;
+    box-shadow: 0 12px 26px #0f172a14;
+}
+
+.notebook-card:focus-visible {
+    outline: 3px solid #93c5fd;
+    outline-offset: 2px;
+}
+
+.notebook-card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.notebook-card-action {
+    min-height: 34px;
+    padding: 5px 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 9px;
+    background: #fff;
+    color: #475569;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.notebook-card-action:hover {
+    border-color: #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.notebook-card-action.is-favorite {
+    color: #b45309;
+}
+
+.notebook-card-action.is-destructive {
+    color: #b91c1c;
+}
+
+.notebook-card-action.is-destructive:hover {
+    border-color: #fecaca;
+    background: #fef2f2;
+}
+
+.notebook-card-folder {
+    width: 100%;
+    min-height: 34px;
+    padding: 0 8px;
+    border: 1px solid #e2e8f0;
+    border-radius: 9px;
+    background: #f8fafc;
+    color: #475569;
+    font-size: 12px;
+}
+
+.notebook-list-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.notebook-list-heading h3 {
+    margin: 0;
+}
+
+.notebook-sort-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.notebook-sort-control select {
+    min-height: 36px;
+    padding: 0 10px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #fff;
+    color: #334155;
+    font-size: 12px;
+}
+
+.folder-nav-list {
+    display: grid;
+    gap: 3px;
+    max-height: 32vh;
+    margin-top: 8px;
+    overflow-y: auto;
+}
+
+.folder-nav-item {
+    min-height: 40px;
+    overflow: hidden;
+    padding: 0 12px 0 36px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: #64748b;
+    font-size: 13px;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.folder-nav-item::before {
+    margin-right: 9px;
+    color: #64748b;
+    content: "▸";
+}
+
+.folder-nav-item:hover,
+.folder-nav-item.is-active {
+    background: #e2e8f0;
+    color: #0f172a;
+}
+
+.notebook-cover-stage {
+    display: grid;
+    min-height: 184px;
+    place-items: center;
+    overflow: hidden;
+    border-radius: 12px;
+    background:
+        radial-gradient(ellipse at 50% 88%, #33415522, transparent 48%),
+        linear-gradient(145deg, #f8fafc, #eef2f7);
+}
+
+.notebook-cover-preview {
+    position: relative;
+    display: flex;
+    width: min(72%, 156px);
+    aspect-ratio: 0.72;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+    padding: 18px 14px 16px 19px;
+    border-radius: 6px 12px 12px 6px;
+    box-shadow: 7px 8px 14px #0f172a30, inset 4px 0 0 #ffffff66;
+    color: #fff;
+}
+
+.notebook-cover-preview::before {
+    position: absolute;
+    top: 12px;
+    bottom: 12px;
+    left: 13px;
+    width: 1px;
+    background: #ffffff55;
+    content: "";
+}
+
+.notebook-cover-preview::after {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(135deg, #ffffff24, transparent 48%, #00000012);
+    content: "";
+    pointer-events: none;
+}
+
+.notebook-cover-preview.cover-simple,
+.notebook-cover-preview.cover-linen {
+    color: #3f3426;
+}
+
+.notebook-cover-brand,
+.notebook-cover-label,
+.notebook-cover-title {
+    position: relative;
+    z-index: 1;
+    display: block;
+}
+
+.notebook-cover-brand {
+    font-size: 8px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    opacity: 0.7;
+}
+
+.notebook-cover-label {
+    margin-top: auto;
+    padding-top: 20px;
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    opacity: 0.72;
+}
+
+.notebook-cover-title {
+    display: -webkit-box;
+    overflow: hidden;
+    margin-top: 5px;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+}
+
+.notebook-card-details {
+    display: grid;
+    min-width: 0;
+    gap: 7px;
+    padding: 0 2px 2px;
+}
+
+.notebook-card-title {
+    overflow: hidden;
+    font-size: 14px;
+    font-weight: 700;
+    line-height: 1.3;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.notebook-card-metadata {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    color: #64748b;
+    font-size: 11px;
+}
+
+.notebook-card-template {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.notebook-card-format {
+    flex: 0 0 auto;
+    padding: 3px 7px;
+    border-radius: 9999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.notebook-card-page-count {
+    flex: 0 0 auto;
+    color: #64748b;
+    font-size: 10px;
+}
+
+.trash-notebook-list {
+    display: grid;
+    gap: 12px;
+}
+
+.trash-notebook-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    background: #fff;
+}
+
+.trash-notebook-title {
+    margin: 0;
+    color: #1e293b;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.trash-notebook-date {
+    margin: 5px 0 0;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.trash-notebook-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.trash-restore-button,
+.trash-delete-button {
+    min-height: 38px;
+    padding: 8px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    background: #fff;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.trash-restore-button {
+    border-color: #2b59a2;
+    background: #2b59a2;
+    color: #fff;
+}
+
+.trash-delete-button {
+    border-color: #fecaca;
+    color: #b91c1c;
+}
+
+
+</style>
+    <style>
+@media (max-width: 640px) {
+    .trash-notebook-card {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .trash-notebook-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.editor-page-sidebar {
+    position: absolute;
+    z-index: 25;
+    top: 58px;
+    bottom: 0;
+    left: 0;
+    width: 260px;
+    overflow-y: auto;
+    padding: 18px;
+    transform: translateX(-100%);
+    background: #f8f8f8;
+    box-shadow: 4px 0 12px #00000012;
+    transition: transform 160ms ease;
+}
+
+.editor-page-sidebar.is-open {
+    transform: translateX(0);
+}
+
+.editor-page-sidebar h2 {
+    margin: 0 0 14px;
+    font-size: 18px;
+}
+
+#editorSidebarPages {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.editor-page-thumbnail {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    width: 100%;
+    min-height: 120px;
+    overflow: hidden;
+    aspect-ratio: 0.72;
+    border: 1px solid #cbd5e1;
+    border-radius: 5px;
+    color: #475569;
+    box-shadow: 0 1px 5px #00000012;
+    padding: 6px;
+    text-align: left;
+    background-size: 8px 8px;
+}
+
+.editor-page-thumbnail.is-selected {
+    border: 2px solid #1685f8;
+}
+
+.editor-page-thumbnail-number {
+    position: relative;
+    z-index: 1;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.editor-page-thumbnail-preview {
+    position: relative;
+    z-index: 1;
+    overflow: hidden;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 6px;
+    line-height: 1.35;
+    opacity: 0.75;
+}
+
+.editor-page-item {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.editor-page-actions {
+    display: flex;
+    justify-content: center;
+    gap: 4px;
+}
+
+.editor-page-action {
+    width: 28px;
+    height: 26px;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    background: #fff;
+    color: #475569;
+    font-size: 15px;
+    line-height: 1;
+}
+
+.editor-page-action:disabled {
+    cursor: not-allowed;
+    opacity: 0.4;
+}
+
+.editor-add-page {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin-top: 14px;
+    padding: 10px;
+    border: 1px solid #d4d4d4;
+    border-radius: 10px;
+    background: #fff;
+}
+
+.editor-add-page svg {
+    width: 17px;
+    height: 17px;
+}
+
+#notebookOptionsMenu {
+    position: fixed;
+    z-index: 40;
+    top: 128px;
+    right: 12px;
+    bottom: 84px;
+    width: min(480px, calc(100vw - 24px));
+    max-height: none;
+    overflow-y: auto;
+    padding: 0 0 20px;
+    border: 1px solid #e5e5e5;
+    border-radius: 16px;
+    background: #f8f8f8;
+    box-shadow: 0 8px 30px #00000020;
+    font-size: 15px;
+}
+
+#notebookOptionsMenu.is-open {
+    display: block !important;
+}
+
+.editor-info-popover,
+.editor-recording-menu {
+    position: absolute;
+    z-index: 45;
+    top: 78px;
+    left: 64px;
+    display: none;
+    width: min(360px, calc(100vw - 32px));
+    padding: 12px 0;
+    border: 1px solid #dedede;
+    border-radius: 14px;
+    background: #f8f8f8;
+    box-shadow: 0 8px 24px #00000020;
+}
+
+.editor-info-popover.is-open,
+.editor-recording-menu.is-open {
+    display: block;
+}
+
+.editor-info-popover p,
+.editor-recording-menu button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin: 0;
+    padding: 12px 20px;
+    color: #262626;
+    font-size: 14px;
+}
+
+.editor-info-popover p span:last-child {
+    color: #737373;
+}
+
+.editor-info-popover button {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 12px;
+    margin-top: 6px;
+    padding: 14px 20px;
+    border: 0;
+    border-top: 1px solid #ddd;
+    background: transparent;
+    text-align: left;
+}
+
+.editor-info-popover button svg,
+.editor-recording-menu button svg {
+    width: 20px;
+    height: 20px;
+}
+
+.editor-recording-menu {
+    right: 18%;
+    left: auto;
+    width: min(340px, calc(100vw - 32px));
+}
+
+.editor-recording-menu button {
+    width: 100%;
+    justify-content: flex-start;
+    border: 0;
+    background: transparent;
+    text-align: left;
+}
+
+.editor-recording-menu button:hover,
+#notebookOptionsMenu button:hover {
+    background: #eeeeee;
+}
+
+.editor-recording-menu > p {
+    margin: 0;
+    padding: 8px 18px;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.editor-recording-menu > p.is-recording {
+    color: #dc2626;
+}
+
+.editor-recordings-panel {
+    position: absolute;
+    z-index: 46;
+    top: 78px;
+    right: 18%;
+    display: none;
+    width: min(390px, calc(100vw - 32px));
+    max-height: min(70vh, 560px);
+    overflow-y: auto;
+    padding: 16px;
+    border: 1px solid #dedede;
+    border-radius: 14px;
+    background: #f8f8f8;
+    box-shadow: 0 8px 24px #00000020;
+}
+
+.editor-recordings-panel.is-open {
+    display: block;
+}
+
+.recordings-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+}
+
+.recordings-heading h2 {
+    margin: 0;
+    font-size: 17px;
+}
+
+.recordings-heading button {
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 50%;
+    background: #e5e7eb;
+    font-size: 22px;
+}
+
+.recording-item {
+    padding: 12px 0;
+    border-top: 1px solid #e5e7eb;
+}
+
+.recording-item p {
+    margin: 0 0 8px;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.recording-item audio {
+    width: 100%;
+}
+
+.recording-timeline-status {
+    min-height: 18px;
+    color: #475569 !important;
+}
+
+.recording-delete-button {
+    min-height: 36px;
+    padding: 0 12px;
+    border: 1px solid #fecaca;
+    border-radius: 9px;
+    background: #fff;
+    color: #b91c1c;
+    font-weight: 600;
+}
+
+.audio-sync-highlight {
+    filter: drop-shadow(0 0 5px #f59e0b);
+    outline: 2px solid #f59e0b !important;
+    outline-offset: -2px;
+}
+
+#recordingMenu button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+@media (max-width: 900px) {
+    .notebook-editor > header {
+        height: 58px;
+        min-height: 58px;
+        padding: 0 5px;
+    }
+
+    .editor-top-button {
+        min-width: 36px;
+        height: 40px;
+        padding: 0 6px;
+    }
+
+    .editor-top-button svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .editor-new-button {
+        font-size: 15px;
+    }
+
+    .editor-controls-row {
+        top: 66px;
+    }
+
+    .editor-history-controls {
+        display: none;
+    }
+
+    .editor-workspace {
+        padding-top: 60px;
+    }
+
+    #notebookOptionsMenu {
+        top: 66px;
+        right: 8px;
+        bottom: 12px;
+        width: min(420px, calc(100vw - 16px));
+    }
+}
+
+@media (max-width: 700px) {
+    .pen-dropdown-menu {
+        width: 145px;
+        padding: 6px;
+    }
+
+    .pen-choice {
+        min-height: 36px;
+        gap: 5px;
+        padding: 0 5px;
+        font-size: 11px;
+    }
+
+    .pen-settings-panel {
+        left: calc(100% + 5px);
+        width: 165px;
+        padding: 10px;
+    }
+
+    .toolbar-color-options {
+        grid-template-columns: repeat(4, 28px);
+        gap: 6px;
+    }
+
+    .toolbar-color-options .pen-color,
+    .toolbar-color-options .toolbar-custom-color {
+        width: 28px;
+        height: 28px;
+    }
+}
+
+@media (max-width: 600px) {
+    .notebook-editor > header {
+        overflow-x: auto;
+        justify-content: flex-start;
+    }
+
+    .editor-main-tools {
+        justify-content: flex-start;
+    }
+
+    .editor-controls-row {
+        justify-content: flex-start;
+        padding-left: 8px;
+    }
+
+    .editor-floating-toolbar {
+        max-width: calc(100vw - 16px);
+        gap: 4px;
+        padding: 4px;
+        border-radius: 14px;
+    }
+
+    .floating-tool {
+        width: 38px;
+        height: 40px;
+    }
+
+    .toolbar-delete-tool {
+        width: 34px;
+        height: 36px;
+    }
+
+    .toolbar-dropdown-group > .floating-tool {
+        width: 42px;
+        height: 40px;
+    }
+
+    .pen-dropdown-menu {
+        width: 145px;
+        padding: 6px;
+    }
+
+    .pen-choice {
+        min-height: 36px;
+        gap: 5px;
+        padding: 0 5px;
+        font-size: 11px;
+    }
+
+    .pen-settings-panel {
+        left: calc(100% + 5px);
+        width: 165px;
+        padding: 10px;
+    }
+
+    .toolbar-color-options {
+        grid-template-columns: repeat(4, 28px);
+        gap: 6px;
+    }
+
+    .toolbar-color-options .pen-color,
+    .toolbar-color-options .toolbar-custom-color {
+        width: 28px;
+        height: 28px;
+    }
+
+    .toolbar-select {
+        height: 36px;
+        padding: 0 8px;
+        font-size: 12px;
+    }
+
+    .pen-color {
+        width: 28px;
+        height: 28px;
+    }
+
+    .editor-canvas-area {
+        justify-content: flex-start;
+        padding: 0 12px 24px;
+    }
+
+    .notebook-page textarea {
+        padding: 24px;
+    }
+
+    .page-counter {
+        bottom: 12px;
+        left: 12px;
+        font-size: 14px;
+    }
+}
+
+.editor-toolbar-settings {
+    position: absolute;
+    z-index: 45;
+    top: 78px;
+    right: 18%;
+    display: none;
+    width: min(280px, calc(100vw - 32px));
+    padding: 14px;
+    border: 1px solid #dedede;
+    border-radius: 14px;
+    background: #f8f8f8;
+    box-shadow: 0 8px 24px #00000020;
+}
+
+.editor-toolbar-settings.is-open {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 9px;
+}
+
+.editor-toolbar-settings-heading {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.editor-toolbar-settings-heading h3 {
+    margin: 0 0 4px;
+    font-size: 15px;
+}
+
+.editor-toolbar-settings-heading button {
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #475569;
+    font-size: 22px;
+}
+
+.editor-toolbar-settings label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: #334155;
+    font-size: 13px;
+}
+
+.editor-toolbar-settings label[for="inputModeSelect"],
+#inputModeSelect,
+.input-mode-note {
+    grid-column: 1 / -1;
+}
+
+.input-mode-note {
+    margin: -4px 0 2px;
+    color: #64748b;
+    font-size: 11px;
+    line-height: 1.4;
+}
+
+.editor-toolbar-settings input {
+    accent-color: #1685f8;
+}
+
+.toolbar-tool-hidden {
+    display: none !important;
+}
+
+.editor-ruler {
+    position: absolute;
+    z-index: 24;
+    top: 45%;
+    left: 18%;
+    display: none;
+    width: 64%;
+    height: 54px;
+    border: 1px solid #aeb8c2;
+    border-radius: 5px;
+    background:
+        repeating-linear-gradient(90deg, transparent 0 9px, #64748b 10px 11px, transparent 12px 19px, #94a3b8 20px 21px),
+        #ffffffdd;
+    box-shadow: 0 3px 8px #00000020;
+    pointer-events: none;
+}
+
+.editor-ruler.is-visible {
+    display: block;
+}
+
+.editor-laser-dot {
+    position: absolute;
+    z-index: 8;
+    display: none;
+    width: 14px;
+    height: 14px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    background: #f43f5e;
+    box-shadow: 0 0 0 2px #f43f5e, 0 0 16px 5px #f43f5e99;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+}
+
+.editor-laser-dot.is-visible {
+    display: block;
+}
+
+
+</style>
+    <style>
+.global-search-modal {
+    position: fixed;
+    z-index: 2100;
+    inset: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: max(8vh, 24px) 16px 16px;
+    background: #0f172a66;
+    backdrop-filter: blur(4px);
+}
+
+.global-search-dialog {
+    display: flex;
+    width: min(640px, 100%);
+    max-height: 84vh;
+    flex-direction: column;
+    gap: 12px;
+    padding: 20px;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 24px 70px #0f172a40;
+}
+
+.global-search-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.global-search-header h2 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 19px;
+    font-weight: 700;
+}
+
+.global-search-header p {
+    margin: 4px 0 0;
+    color: #64748b;
+    font-size: 13px;
+}
+
+#globalSearchClose {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 0;
+    border-radius: 10px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 25px;
+}
+
+#globalSearchInput {
+    width: 100%;
+    min-height: 46px;
+    padding: 0 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    background: #f8fafc;
+    color: #0f172a;
+    font: inherit;
+}
+
+.global-search-status {
+    margin: 0;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.global-search-results {
+    display: grid;
+    min-height: 0;
+    gap: 8px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.global-search-result {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 12px;
+    width: 100%;
+    min-height: 64px;
+    padding: 12px 14px;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    background: #fff;
+    color: #1e293b;
+    text-align: left;
+}
+
+.global-search-result:hover,
+.global-search-result:focus-visible {
+    border-color: #93c5fd;
+    background: #f8fbff;
+}
+
+.global-search-result-heading {
+    overflow: hidden;
+    font-size: 14px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.global-search-result-type {
+    color: #2563eb;
+    font-size: 12px;
+    white-space: nowrap;
+}
+
+.global-search-result-excerpt {
+    grid-column: 1 / -1;
+    overflow: hidden;
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.45;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+    .global-search-modal {
+        align-items: flex-end;
+        padding: 12px;
+    }
+
+    .global-search-dialog {
+        max-height: min(82vh, 720px);
+        padding: 16px;
+        border-radius: 18px;
+    }
+
+    .global-search-result {
+        min-height: 60px;
+        padding: 12px;
+    }
+}
+
+.flashcards-modal {
+    position: fixed;
+    z-index: 2200;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: #0f172a66;
+    backdrop-filter: blur(4px);
+}
+
+.flashcards-modal.hidden {
+    display: none;
+}
+
+.flashcards-dialog {
+    display: flex;
+    width: min(940px, 100%);
+    max-height: min(88vh, 900px);
+    flex-direction: column;
+    gap: 16px;
+    padding: 22px;
+    overflow: hidden;
+    border: 1px solid #e2e8f0;
+    border-radius: 20px;
+    background: #fff;
+    box-shadow: 0 24px 70px #0f172a40;
+}
+
+.flashcards-header,
+.flashcard-study-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.flashcards-header h2,
+.flashcards-header p,
+.flashcard-topic-study h3,
+.flashcard-list-section h3 {
+    margin: 0;
+}
+
+.flashcards-header h2 {
+    color: #0f172a;
+    font-size: 21px;
+    font-weight: 700;
+}
+
+.flashcards-header p {
+    margin-top: 4px;
+    color: #64748b;
+    font-size: 13px;
+}
+
+#flashcardsClose {
+    width: 38px;
+    height: 38px;
+    border: 0;
+    border-radius: 10px;
+    background: #f1f5f9;
+    color: #475569;
+    font-size: 25px;
+}
+
+.flashcard-status {
+    margin: -4px 0 0;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.flashcards-content {
+    display: block;
+    min-height: 0;
+    overflow: auto;
+}
+
+.flashcard-list-section,
+.flashcard-topic-study {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 16px;
+    padding-top: 14px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.flashcard-list-section[hidden],
+.flashcard-topic-study[hidden] {
+    display: none;
+}
+
+#flashcardShowAnswer,
+#flashcardNextCard {
+    min-height: 40px;
+    padding: 8px 13px;
+    border: 0;
+    border-radius: 10px;
+    background: #2563eb;
+    color: #fff;
+    font-weight: 600;
+}
+
+.flashcard-topic-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+    gap: 12px;
+}
+
+.flashcard-list-section h3,
+.flashcard-topic-study h3 {
+    margin: 0 0 10px;
+    color: #1e293b;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.flashcard-topic-button {
+    display: flex;
+    min-height: 76px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 15px;
+    border: 1px solid #dbeafe;
+    border-radius: 14px;
+    background: linear-gradient(135deg, #f8fbff, #eff6ff);
+    color: #1e3a8a;
+    text-align: left;
+    font: inherit;
+}
+
+.flashcard-topic-button:hover {
+    border-color: #93c5fd;
+    background: #eff6ff;
+}
+
+.flashcard-topic-count {
+    display: inline-flex;
+    min-width: 30px;
+    height: 30px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: #dbeafe;
+    color: #1d4ed8;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.flashcard-study-heading p {
+    margin: 4px 0 0;
+    color: #64748b;
+    font-size: 13px;
+}
+
+.flashcard-secondary-button,
+.flashcard-delete-button {
+    min-height: 38px;
+    padding: 7px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    background: #fff;
+    color: #334155;
+    font-weight: 600;
+}
+
+.flashcard-review-card {
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+    border: 1px solid #dbeafe;
+    border-radius: 14px;
+    background: #f8fbff;
+}
+
+.flashcard-review-card > p {
+    margin: 0;
+    color: #2563eb;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.flashcard-question,
+.flashcard-answer {
+    min-height: 52px;
+    color: #0f172a;
+    font-size: 16px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.flashcard-answer {
+    margin: 0;
+    padding: 12px;
+    border-radius: 10px;
+    background: #fff;
+}
+
+.flashcard-navigation {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.flashcard-ratings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+
+.flashcard-ratings button {
+    min-height: 38px;
+    padding: 7px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    background: #fff;
+    color: #334155;
+}
+
+.flashcard-empty {
+    margin: 0;
+    color: #64748b;
+    font-size: 13px;
+}
+
+@media (max-width: 640px) {
+    .flashcards-modal {
+        align-items: flex-end;
+        padding: 8px;
+    }
+
+    .flashcards-dialog {
+        max-height: 92vh;
+        padding: 16px;
+        border-radius: 18px 18px 10px 10px;
+    }
+
+    .flashcard-topic-button {
+        min-height: 66px;
+    }
+
+    .flashcard-study-heading {
+        align-items: center;
+    }
+}
+
+</style>
+    <style>
+.pdf-workspace-launch {
+    display: inline-flex;
+    min-height: 40px;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 8px 12px;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.pdf-workspace-launch svg {
+    width: 18px;
+    height: 18px;
+}
+
+.pdf-workspace-modal {
+    position: fixed;
+    z-index: 2200;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: #0f172a80;
+}
+
+.pdf-workspace-modal.hidden {
+    display: none;
+}
+
+.pdf-workspace-dialog {
+    display: flex;
+    width: min(1500px, 100%);
+    height: min(92vh, 1050px);
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid #dbe3ee;
+    border-radius: 18px;
+    background: #f8fafc;
+    box-shadow: 0 24px 70px #0f172a40;
+}
+
+.pdf-workspace-header,
+.pdf-workspace-toolbar {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid #e2e8f0;
+    background: #fff;
+}
+
+.pdf-workspace-header {
+    justify-content: space-between;
+}
+
+.pdf-workspace-header-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 8px;
+}
+
+.pdf-workspace-header h2,
+.pdf-workspace-saved h3 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 17px;
+    font-weight: 700;
+}
+
+.pdf-workspace-header p {
+    margin: 4px 0 0;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.pdf-workspace-header-actions button:last-child {
+    width: 38px;
+    height: 38px;
+    border: 0;
+    border-radius: 10px;
+    background: #f1f5f9;
+    color: #334155;
+    font-size: 26px;
+}
+
+.pdf-workspace-header-actions button:first-child {
+    width: auto;
+    padding: 0 12px;
+    border: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.pdf-workspace-help {
+    flex: 0 1 auto;
+    max-height: min(42vh, 420px);
+    overflow: auto;
+    border-bottom: 1px solid #bfdbfe;
+    background: #eff6ff;
+    color: #1e293b;
+}
+
+.pdf-workspace-help.hidden {
+    display: none;
+}
+
+.pdf-workspace-help-heading {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 18px;
+    border-bottom: 1px solid #dbeafe;
+    background: #eff6ff;
+}
+
+.pdf-workspace-help-heading h3 {
+    margin: 0;
+    color: #1e3a8a;
+    font-size: 15px;
+}
+
+.pdf-workspace-help-heading button {
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 8px;
+    background: #dbeafe;
+    color: #1e3a8a;
+    font-size: 22px;
+}
+
+.pdf-workspace-help-content {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+    gap: 14px 24px;
+    padding: 14px 18px 18px;
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+.pdf-workspace-help-content h4 {
+    margin: 0 0 6px;
+    color: #1e3a8a;
+    font-size: 13px;
+}
+
+.pdf-workspace-help-content p,
+.pdf-workspace-help-content ol {
+    margin: 0;
+}
+
+.pdf-workspace-help-content ol {
+    padding-left: 20px;
+}
+
+.pdf-workspace-help-content li + li {
+    margin-top: 4px;
+}
+
+.pdf-workspace-help-note {
+    grid-column: 1 / -1;
+    padding: 10px 12px;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    background: #fff;
+}
+
+.pdf-workspace-toolbar {
+    flex-wrap: wrap;
+}
+
+.pdf-workspace-toolbar label {
+    color: #475569;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.pdf-workspace-toolbar select,
+.pdf-workspace-toolbar button,
+.pdf-workspace-page-control button,
+.pdf-workspace-document-actions button,
+.pdf-workspace-card button {
+    min-height: 36px;
+    padding: 7px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    background: #fff;
+    color: #334155;
+    font: inherit;
+    font-size: 12px;
+}
+
+.pdf-workspace-toolbar button,
+.pdf-workspace-page-control button[data-action="quote"],
+.pdf-workspace-page-control button[data-action="link-source"],
+.pdf-workspace-page-control button[data-action="link-target"] {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+}
+
+#pdfWorkspaceStatus {
+    min-width: 120px;
+    flex: 1 1 160px;
+    color: #64748b;
+    font-size: 12px;
+}
+
+.pdf-workspace-layout,
+.pdf-workspace-main {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    flex-direction: column;
+}
+
+.pdf-workspace-main {
+    overflow: auto;
+    padding: 14px;
+}
+
+.pdf-workspace-documents {
+    display: grid;
+    min-height: 0;
+    flex: 0 0 auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 12px;
+}
+
+.pdf-workspace-document {
+    display: flex;
+    min-width: 0;
+    height: min(68vh, 750px);
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid #dbe3ee;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.pdf-workspace-document-header,
+.pdf-workspace-page-control {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 7px;
+    padding: 9px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.pdf-workspace-document-title {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    color: #1e293b;
+    font-size: 12px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pdf-workspace-document-actions {
+    display: flex;
+    gap: 4px;
+}
+
+.pdf-workspace-document-actions button,
+.pdf-workspace-page-control button {
+    min-height: 32px;
+    padding: 5px 8px;
+}
+
+.pdf-workspace-page-control input[type="number"] {
+    width: 56px;
+    height: 32px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.pdf-workspace-page-control input[type="range"] {
+    width: 80px;
+}
+
+.pdf-workspace-page-stage {
+    position: relative;
+    width: max-content;
+    max-width: 100%;
+    min-height: 240px;
+    margin: 12px auto;
+    background: #fff;
+    box-shadow: 0 2px 12px #0f172a1c;
+}
+
+.pdf-workspace-page-stage canvas {
+    display: block;
+    max-width: 100%;
+    height: auto;
+}
+
+.pdf-workspace-text-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    color: transparent;
+    user-select: text;
+    -webkit-user-select: text;
+}
+
+.pdf-workspace-text-layer span {
+    position: absolute;
+    color: transparent;
+    line-height: 1;
+    white-space: pre;
+    transform-origin: 0 0;
+}
+
+.pdf-workspace-text-layer ::selection {
+    background: #2563eb55;
+    color: transparent;
+}
+
+.pdf-workspace-page-container {
+    display: flex;
+    min-height: 0;
+    flex: 1;
+    overflow: auto;
+    background: #e9edf3;
+    text-align: center;
+}
+
+.pdf-workspace-highlight {
+    position: absolute;
+    z-index: 2;
+    border: 2px solid #f59e0b;
+    background: #fbbf2438;
+    pointer-events: none;
+    animation: workspace-highlight-fade 2.5s ease-out forwards;
+}
+
+@keyframes workspace-highlight-fade {
+    to {
+        opacity: 0.1;
+    }
+}
+
+.pdf-workspace-empty {
+    grid-column: 1 / -1;
+    align-self: center;
+    margin: 20px;
+    color: #64748b;
+    font-size: 13px;
+    text-align: center;
+}
+
+.pdf-workspace-saved {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    padding-top: 14px;
+}
+
+.pdf-workspace-saved h3 {
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.pdf-workspace-card-list {
+    display: grid;
+    max-height: 220px;
+    gap: 7px;
+    overflow: auto;
+}
+
+.pdf-workspace-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 5px 8px;
+    padding: 9px;
+    border: 1px solid #e2e8f0;
+    border-radius: 9px;
+    background: #fff;
+}
+
+.pdf-workspace-card p {
+    grid-column: 1;
+    margin: 0;
+    color: #334155;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.pdf-workspace-card small {
+    color: #64748b;
+    font-size: 10px;
+}
+
+.pdf-workspace-card button {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
+}
+
+@media (max-width: 760px) {
+    .pdf-workspace-modal {
+        padding: 0;
+    }
+
+    .pdf-workspace-dialog {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        border-radius: 0;
+    }
+
+    .pdf-workspace-header,
+    .pdf-workspace-toolbar {
+        padding: 10px 12px;
+    }
+
+    .pdf-workspace-main {
+        padding: 8px;
+    }
+
+    .pdf-workspace-documents,
+    .pdf-workspace-saved {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .pdf-workspace-document {
+        height: min(55vh, 560px);
+    }
+}
+
+.sync-conflict-modal {
+    position: fixed;
+    z-index: 2300;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: #0f172a80;
+}
+
+.sync-conflict-modal.hidden {
+    display: none;
+}
+
+.sync-conflict-dialog {
+    width: min(660px, 100%);
+    max-height: 85vh;
+    overflow: auto;
+    padding: 18px;
+    border: 1px solid #dbe3ee;
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 24px 70px #0f172a40;
+}
+
+.sync-conflict-dialog > header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.sync-conflict-dialog h2 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 18px;
+}
+
+.sync-conflict-dialog p {
+    color: #64748b;
+    font-size: 12px;
+}
+
+.sync-conflict-dialog > header > button {
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: 8px;
+    background: #f1f5f9;
+    font-size: 24px;
+}
+
+.sync-conflict-list {
+    display: grid;
+    gap: 10px;
+}
+
+.sync-conflict-card {
+    padding: 12px;
+    border: 1px solid #fed7aa;
+    border-radius: 10px;
+    background: #fffaf3;
+}
+
+.sync-conflict-card h3 {
+    margin: 0 0 5px;
+    color: #1e293b;
+    font-size: 14px;
+}
+
+.sync-conflict-card p {
+    margin: 0 0 10px;
+}
+
+.sync-conflict-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.sync-conflict-actions button {
+    min-height: 36px;
+    padding: 7px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #334155;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.sync-conflict-actions button:first-child {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+}
+
+.pdf-citation-editor {
+    position: fixed;
+    z-index: 2400;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: #0f172a80;
+}
+
+.pdf-citation-editor.hidden {
+    display: none;
+}
+
+.pdf-citation-editor-card {
+    display: grid;
+    width: min(460px, 100%);
+    gap: 10px;
+    padding: 18px;
+    border: 1px solid #dbe3ee;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 20px 60px #0f172a40;
+}
+
+.pdf-citation-editor-card h3 {
+    margin: 0 0 4px;
+    color: #0f172a;
+    font-size: 17px;
+}
+
+.pdf-citation-editor-card label {
+    color: #475569;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.pdf-citation-editor-card input,
+.pdf-citation-editor-card textarea {
+    width: 100%;
+    min-height: 40px;
+    padding: 9px 10px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    color: #1e293b;
+    font: inherit;
+}
+
+.pdf-citation-editor-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.pdf-citation-editor-actions button {
+    min-height: 38px;
+    padding: 8px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    background: #fff;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.pdf-citation-editor-actions button[type="submit"] {
+    border-color: #2563eb;
+    background: #2563eb;
+    color: #fff;
+}
+
+</style>
+    <style>
+:root {
+    --goodnotes-surface: #ffffff;
+    --goodnotes-workspace: #edf3e4;
+    --goodnotes-secondary: #f3f5f1;
+    --goodnotes-toolbar: #2f5f9b;
+    --goodnotes-hover: #e7eef8;
+    --goodnotes-active: #dfeeff;
+    --goodnotes-accent: #2e6fd6;
+    --goodnotes-icon-active: #dfeafe;
+    --goodnotes-text: #1d2430;
+    --goodnotes-secondary-text: #5d6470;
+    --goodnotes-line: #dfe5d3;
+    --goodnotes-popover: #ffffff;
+    --goodnotes-selection: #2e6fd6;
+    --goodnotes-shadow: 0 18px 35px rgba(28, 46, 78, 0.12);
+    --goodnotes-shadow-soft: 0 10px 25px rgba(28, 46, 78, 0.08);
+    --goodnotes-paper: #eef3eb;
+    --goodnotes-dot: rgba(120, 128, 137, 0.22);
+}
+
+.whiteboard-modal {
+    position: fixed;
+    z-index: 2400;
+    inset: 0;
+    display: flex;
+    background: rgba(63, 69, 74, 0.08);
+    backdrop-filter: blur(1.5px);
+}
+
+.whiteboard-modal.hidden {
+    display: none;
+}
+
+.whiteboard-shell {
+    position: relative;
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    flex-direction: column;
+    overflow: hidden;
+    background: linear-gradient(180deg, #f3f7f2 0%, #f0f5f1 100%);
+    color: var(--goodnotes-text);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.9);
+}
+
+.whiteboard-header,
+.whiteboard-title-group,
+.whiteboard-header-actions,
+.whiteboard-board-sidebar-heading,
+.whiteboard-footer,
+.whiteboard-zoom-controls {
+    display: flex;
+    align-items: center;
+}
+
+.whiteboard-header {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    min-height: 58px;
+    padding: 8px 16px 9px 14px;
+    border-bottom: 1px solid rgba(19, 58, 90, 0.16);
+    background: linear-gradient(180deg, #3569a8 0%, #2f5e95 100%);
+    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.whiteboard-doc-info {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0;
+}
+
+.whiteboard-title-group {
+    min-width: 0;
+    gap: 10px;
+    align-items: center;
+    flex: 1 1 auto;
+}
+
+.whiteboard-doc-info {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+}
+
+.whiteboard-title-group h2 {
+    display: none !important;
+    margin: 0;
+    color: rgba(235, 241, 255, 0.9);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    opacity: 0.9;
+}
+
+.whiteboard-doc-name-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    margin-top: 0;
+}
+
+#whiteboardTitle {
+    width: min(42vw, 330px);
+    max-width: 100%;
+    padding: 2px 0 0;
+    border: 0;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.97);
+    font-size: 18px;
+    line-height: 1.3;
+    outline: none;
+    font-weight: 500;
+    text-shadow: 0 1px 0 rgba(12, 35, 56, 0.15);
+}
+
+#whiteboardTitle::placeholder {
+    color: rgba(255, 255, 255, 0.65);
+}
+
+#whiteboardTitle:focus {
+    color: #ffffff;
+}
+
+.whiteboard-doc-menu-toggle {
+    width: 20px;
+    min-width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 14px;
+    line-height: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.whiteboard-doc-menu-toggle:hover,
+.whiteboard-doc-menu-toggle:focus-visible {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.whiteboard-doc-menu {
+    position: absolute;
+    left: 64px;
+    top: 58px;
+    z-index: 20;
+    width: 285px;
+    padding: 8px 0;
+    border: 1px solid rgba(60, 77, 97, 0.18);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.98);
+    box-shadow: 0 14px 32px rgba(20, 35, 52, 0.18);
+}
+
+.whiteboard-doc-menu.hidden {
+    display: none;
+}
+
+.whiteboard-doc-menu-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 16px;
+    color: #2f3947;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.whiteboard-doc-menu-row strong {
+    font-weight: 600;
+    color: #2e3a45;
+}
+
+.whiteboard-doc-menu-row .status-success {
+    color: #1d9d4f;
+}
+
+.whiteboard-doc-menu-divider {
+    height: 1px;
+    margin: 6px 0;
+    background: rgba(96, 111, 132, 0.18);
+}
+
+.whiteboard-doc-menu-action {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 16px;
+    border: 0;
+    background: transparent;
+    color: #273649;
+    font-size: 13px;
+    text-align: left;
+}
+
+.whiteboard-doc-menu-action:hover,
+.whiteboard-doc-menu-action:focus-visible {
+    background: rgba(53, 105, 168, 0.06);
+}
+
+.whiteboard-header-actions {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    overflow: visible;
+}
+
+.whiteboard-header-tool {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(255, 255, 255, 0.98);
+    font-size: 15px;
+    line-height: 1;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+}
+
+.whiteboard-header-add {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.18);
+    font-size: 18px;
+}
+
+.whiteboard-header button,
+.whiteboard-toolbar select,
+.whiteboard-properties select,
+.whiteboard-board-sidebar-heading button,
+.whiteboard-board-item button,
+.whiteboard-zoom-controls button,
+.whiteboard-text-actions button {
+    min-height: 34px;
+    padding: 6px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.12);
+    color: #edf5ff;
+    font: inherit;
+    font-size: 12px;
+    touch-action: manipulation;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.whiteboard-header button {
+    border-color: rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.whiteboard-header .whiteboard-save-status {
+    border-color: transparent !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+}
+
+.whiteboard-toolbar button {
+    min-height: 34px;
+    padding: 7px 12px;
+    border: 1px solid rgba(98, 122, 151, 0.12);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.7);
+    color: var(--goodnotes-text);
+    font: inherit;
+    font-size: 12px;
+    touch-action: manipulation;
+    transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.whiteboard-header button:hover,
+.whiteboard-toolbar button:hover,
+.whiteboard-zoom-controls button:hover,
+.whiteboard-board-sidebar-heading button:hover,
+.whiteboard-text-actions button:hover {
+    background: var(--goodnotes-hover);
+}
+
+.whiteboard-header button:active,
+.whiteboard-toolbar button:active,
+.whiteboard-zoom-controls button:active,
+.whiteboard-board-item button:active,
+.whiteboard-text-actions button:active {
+    transform: translateY(1px);
+}
+
+.whiteboard-icon-button {
+    width: 34px;
+    min-height: 34px !important;
+    padding: 0 !important;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.98);
+    font-size: 20px !important;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.12);
+}
+
+[data-whiteboard-action="favorite"].is-favorite {
+    border-color: rgba(255, 201, 71, 0.5);
+    background: linear-gradient(180deg, #fff8db 0%, #fff1b3 100%);
+    color: #ae7d00;
+}
+
+.whiteboard-save-status {
+    border: 0 !important;
+    background: transparent !important;
+    color: #15803d !important;
+}
+
+.whiteboard-save-status.is-pending {
+    color: #b45309 !important;
+}
+
+.whiteboard-save-status.is-error {
+    color: #b91c1c !important;
+}
+
+.whiteboard-toolbar {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 8px;
+    align-self: center;
+    width: min(760px, calc(100% - 22px));
+    overflow-x: auto;
+    padding: 8px 10px;
+    margin-top: 8px;
+    border: 1px solid rgba(148, 160, 174, 0.24);
+    border-radius: 14px;
+    background: rgba(246, 247, 244, 0.95);
+    box-shadow: 0 1px 0 rgba(17, 24, 39, 0.02);
+    scrollbar-width: thin;
+    position: relative;
+    z-index: 4;
+}
+
+.whiteboard-toolbar button {
+    min-height: 30px;
+    min-width: 56px;
+    padding: 6px 12px;
+    border: 1px solid rgba(127, 136, 150, 0.18);
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.58);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
+    color: #2f3947;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.whiteboard-toolbar button[aria-pressed="true"] {
+    border-color: rgba(46, 111, 214, 0.32);
+    background: linear-gradient(180deg, #e3f1ff 0%, #d5ebff 100%);
+    color: #1a5dc3;
+    box-shadow: inset 0 0 0 1px rgba(46, 111, 214, 0.12), 0 2px 8px rgba(46, 111, 214, 0.08), inset 0 1px 0 rgba(255,255,255,0.7);
+}
+
+.whiteboard-header-actions {
+    flex-wrap: nowrap;
+    gap: 8px;
+}
+
+.whiteboard-toolbar select {
+    flex: 0 0 auto;
+}
+
+.whiteboard-properties {
+    display: none;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 14px;
+    align-self: center;
+    width: min(760px, calc(100% - 22px));
+    overflow-x: auto;
+    padding: 8px 12px 9px;
+    margin-top: 2px;
+    border: 1px solid rgba(148, 160, 174, 0.22);
+    border-radius: 14px;
+    background: rgba(246, 248, 243, 0.94);
+    box-shadow: 0 1px 0 rgba(17, 24, 39, 0.02);
+    scrollbar-width: thin;
+}
+
+.whiteboard-shell.is-board-overview .whiteboard-properties,
+.whiteboard-shell.is-properties-open .whiteboard-properties {
+    display: flex;
+}
+
+.whiteboard-properties label {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 6px;
+    color: #55657a;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.whiteboard-properties input[type="range"] {
+    width: 84px;
+    accent-color: var(--goodnotes-accent);
+}
+
+.whiteboard-properties input[type="color"] {
+    width: 30px;
+    height: 28px;
+    padding: 2px;
+    border: 1px solid rgba(115, 128, 146, 0.38);
+    border-radius: 7px;
+    background: var(--goodnotes-surface);
+}
+
+.whiteboard-properties output {
+    min-width: 32px;
+    color: #55657a;
+    font-variant-numeric: tabular-nums;
+}
+
+.whiteboard-color-palette,
+.whiteboard-recent-colors {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.whiteboard-color-palette > button,
+.whiteboard-recent-colors > button {
+    width: 22px;
+    height: 22px;
+    flex: 0 0 auto;
+    padding: 0;
+    border: 1px solid rgba(148, 163, 184, 0.85);
+    border-radius: 50%;
+    background: #fff;
+    cursor: pointer;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.52), 0 1px 2px rgba(15, 23, 42, 0.06);
+}
+
+.whiteboard-color-palette > button.is-selected,
+.whiteboard-recent-colors > button.is-selected {
+    outline: 2px solid rgba(37, 99, 235, 0.7);
+    outline-offset: 2px;
+}
+
+.whiteboard-floating-actions {
+    position: absolute;
+    top: 120px;
+    left: 14px;
+    z-index: 8;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid rgba(117, 128, 141, 0.18);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.82);
+    box-shadow: 0 6px 24px rgba(35, 52, 73, 0.08);
+    backdrop-filter: blur(4px);
+}
+
+.whiteboard-floating-actions button {
+    width: 38px;
+    height: 38px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: #2b3747;
+    font-size: 20px;
+    line-height: 1;
+}
+
+.whiteboard-footer,
+.whiteboard-canvas-hint {
+    display: none;
+}
+
+.whiteboard-floating-actions button {
+    width: 38px;
+    height: 38px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: #2b3747;
+    font-size: 20px;
+    line-height: 1;
+}
+
+.whiteboard-floating-actions button:hover,
+.whiteboard-floating-actions button:focus-visible {
+    background: rgba(53, 105, 168, 0.06);
+}
+
+.whiteboard-floating-actions button:disabled {
+    opacity: 0.42;
+    cursor: not-allowed;
+}
+
+.whiteboard-workspace {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    margin-top: 10px;
+    background: #ffffff;
+}
+
+.whiteboard-board-sidebar {
+    display: none;
+    width: 228px;
+    min-width: 228px;
+    flex: 0 0 auto;
+    flex-direction: column;
+    overflow: hidden;
+    border-right: 1px solid rgba(27, 61, 95, 0.12);
+    background: rgba(245, 247, 244, 0.9);
+    box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.5);
+}
+
+.whiteboard-shell.is-board-overview .whiteboard-board-sidebar {
+    display: flex;
+}
+
+.whiteboard-board-sidebar-heading {
+    min-height: 48px;
+    justify-content: space-between;
+    padding: 8px 10px 8px 14px;
+    border-bottom: 1px solid rgba(141, 140, 136, 0.15);
+    background: rgba(248, 250, 247, 0.9);
+}
+
+.whiteboard-board-sidebar-heading h3 {
+    margin: 0;
+    color: #667585;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.whiteboard-board-sidebar-heading button {
+    min-width: 32px;
+    min-height: 30px;
+    padding: 0;
+    border-color: rgba(46, 111, 214, 0.2);
+    background: rgba(233, 242, 255, 0.9);
+    color: var(--goodnotes-accent);
+    font-size: 20px;
+}
+
+.whiteboard-board-list {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 8px;
+    overflow: auto;
+    padding: 10px 8px;
+    background: rgba(247, 249, 247, 0.7);
+}
+
+.whiteboard-board-item {
+    display: flex;
+    min-height: 50px;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 8px;
+    border: 1px solid rgba(126, 135, 149, 0.14);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.7);
+    box-shadow: 0 1px 0 rgba(15,23,42,0.02), inset 0 1px 0 rgba(255,255,255,0.5);
+    transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.whiteboard-board-item:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06), inset 0 1px 0 rgba(255,255,255,0.5);
+}
+
+.whiteboard-board-item.is-active {
+    border-color: rgba(46, 111, 214, 0.42);
+    background: linear-gradient(180deg, #edf5ff 0%, #dfeeff 100%);
+    box-shadow: inset 0 0 0 1px rgba(46, 111, 214, 0.12), 0 2px 6px rgba(46, 111, 214, 0.04), inset 0 1px 0 rgba(255,255,255,0.6);
+}
+
+.whiteboard-board-item > button:first-child {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    padding: 7px 6px;
+    border: 0;
+    background: transparent;
+    color: #2b3948;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.whiteboard-board-item > button:last-child {
+    min-width: 28px;
+    min-height: 28px;
+    padding: 0;
+    border-color: rgba(141, 140, 136, 0.12);
+    color: var(--goodnotes-secondary-text);
+    background: rgba(255,255,255,0.5);
+}
+
+.whiteboard-viewport {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    background-color: #ffffff;
+    background-image: radial-gradient(circle, rgba(160, 168, 179, 0.22) 1.3px, transparent 1.4px);
+    background-size: 24px 24px;
+    background-position: 0 0;
+    cursor: crosshair;
+    touch-action: none;
+    user-select: none;
+}
+
+.whiteboard-viewport.is-hand-tool {
+    cursor: grab;
+}
+
+.whiteboard-viewport.is-panning {
+    cursor: grabbing;
+}
+
+#whiteboardCanvas {
+    position: absolute;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    background: transparent;
+}
+
+.whiteboard-canvas-hint {
+    position: absolute;
+    top: 18px;
+    left: 50%;
+    max-width: min(420px, calc(100% - 32px));
+    padding: 14px 18px;
+    transform: translateX(-50%);
+    border: 1px solid rgba(126, 135, 149, 0.12);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.68);
+    color: var(--goodnotes-secondary-text);
+    font-size: 11px;
+    line-height: 1.45;
+    pointer-events: none;
+    text-align: center;
+    box-shadow: 0 10px 24px rgba(91, 92, 100, 0.08);
+}
+
+.whiteboard-footer {
+    min-height: 46px;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 7px 12px;
+    border-top: 1px solid rgba(50, 68, 94, 0.12);
+    background: rgba(248, 249, 247, 0.94);
+}
+
+.whiteboard-footer p {
+    min-width: 0;
+    overflow: hidden;
+    margin: 0;
+    color: var(--goodnotes-secondary-text);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.whiteboard-zoom-controls {
+    flex: 0 0 auto;
+    gap: 6px;
+}
+
+.whiteboard-zoom-controls button {
+    min-width: 32px;
+    min-height: 30px;
+    padding: 4px 8px;
+    color: var(--goodnotes-text);
+    background: rgba(255,255,255,0.82);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.5);
+}
+
+.whiteboard-zoom-controls output {
+    min-width: 44px;
+}
+
+.whiteboard-zoom-controls output {
+    min-width: 42px;
+    color: var(--goodnotes-text);
+    font-size: 11px;
+    text-align: center;
+}
+
+.whiteboard-text-dialog {
+    position: absolute;
+    z-index: 3;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    background: rgba(15, 23, 42, 0.18);
+}
+
+.whiteboard-text-dialog.hidden {
+    display: none;
+}
+
+.whiteboard-text-card {
+    display: flex;
+    width: min(460px, 100%);
+    flex-direction: column;
+    gap: 10px;
+    padding: 18px;
+    border: 1px solid var(--goodnotes-line);
+    border-radius: 16px;
+    background: var(--goodnotes-popover);
+    box-shadow: var(--goodnotes-shadow);
+}
+
+.whiteboard-text-card h3 {
+    margin: 0;
+    color: var(--goodnotes-text);
+    font-size: 16px;
+}
+
+.whiteboard-text-card label {
+    color: var(--goodnotes-secondary-text);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.whiteboard-text-card textarea {
+    min-height: 120px;
+    padding: 10px;
+    border: 1px solid var(--goodnotes-line);
+    border-radius: 9px;
+    resize: vertical;
+    background: var(--goodnotes-surface);
+}
+
+.whiteboard-text-format {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+}
+
+.whiteboard-text-format label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.whiteboard-text-format select,
+.whiteboard-text-format input[type="number"] {
+    max-width: 150px;
+    min-height: 32px;
+    padding: 4px 7px;
+    border: 1px solid var(--goodnotes-line);
+    border-radius: 7px;
+    background: var(--goodnotes-surface);
+}
+
+.whiteboard-text-format input[type="number"] {
+    width: 68px;
+}
+
+.whiteboard-text-format input[type="color"] {
+    width: 32px;
+    height: 28px;
+    padding: 2px;
+    border: 1px solid var(--goodnotes-line);
+    border-radius: 6px;
+    background: var(--goodnotes-surface);
+}
+
+.whiteboard-text-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.whiteboard-text-actions button[type="submit"] {
+    border-color: var(--goodnotes-accent);
+    background: var(--goodnotes-accent);
+    color: #fff;
+}
+
+@media (max-width: 980px) {
+    .whiteboard-header {
+        gap: 12px;
+        padding: 8px 10px;
+    }
+
+    .whiteboard-doc-menu {
+        left: 48px;
+        width: 260px;
+    }
+
+    .whiteboard-header-actions {
+        gap: 6px;
+    }
+
+    .whiteboard-toolbar {
+        padding: 8px 10px 6px;
+    }
+
+    .whiteboard-properties {
+        gap: 10px;
+        padding: 8px 10px 6px;
+    }
+
+    .whiteboard-board-sidebar {
+        width: 180px;
+        min-width: 180px;
+    }
+}
+
+@media (max-width: 760px) {
+    .whiteboard-header {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 7px 8px;
+    }
+
+    .whiteboard-header-actions {
+        width: 100%;
+        justify-content: flex-start;
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        padding-bottom: 2px;
+    }
+
+    .whiteboard-header-actions button {
+        flex: 0 0 auto;
+    }
+
+    .whiteboard-doc-menu {
+        left: 18px;
+        width: min(284px, calc(100vw - 36px));
+    }
+
+    #whiteboardTitle {
+        width: min(68vw, 320px);
+    }
+
+    .whiteboard-toolbar {
+        padding: 6px 8px;
+    }
+
+    .whiteboard-properties {
+        gap: 10px;
+        padding: 6px 8px;
+    }
+
+    .whiteboard-board-sidebar {
+        width: 130px;
+        min-width: 115px;
+    }
+
+    .whiteboard-floating-actions {
+        top: 96px;
+        left: 8px;
+    }
+
+    .whiteboard-board-list {
+        padding: 5px;
+    }
+
+    .whiteboard-footer {
+        padding: 4px 8px;
+    }
+
+    .whiteboard-footer p {
+        max-width: 48vw;
+    }
+}
+
+@media (max-width: 560px) {
+    .whiteboard-header {
+        min-height: 52px;
+    }
+
+    .whiteboard-title-group {
+        width: 100%;
+    }
+
+    .whiteboard-doc-info {
+        width: 100%;
+        min-width: 0;
+    }
+
+    #whiteboardTitle {
+        width: min(62vw, 220px);
+    }
+
+    .whiteboard-header-actions button {
+        padding: 6px 10px;
+        font-size: 11px;
+    }
+
+    .whiteboard-board-sidebar {
+        width: 118px;
+        min-width: 118px;
+    }
+
+    .whiteboard-board-item {
+        min-height: 42px;
+    }
+
+    .whiteboard-board-item > button:first-child {
+        font-size: 11px;
+    }
+
+    .whiteboard-footer {
+        gap: 8px;
+    }
+
+    .whiteboard-footer p {
+        max-width: 38vw;
+    }
+}
+
+</style>
+    <style>
+body[data-page="notebook"] { display: block; width: 100vw; height: 100vh; }
+body[data-page="notebook"] #mobileHeader, body[data-page="notebook"] #sidebarBackdrop, body[data-page="notebook"] #sidebar, body[data-page="notebook"] #desktopHeader, body[data-page="notebook"] #dashboardView, body[data-page="notebook"] #trashView { display: none !important; }
+body[data-page="notebook"] > main { width: 100vw; height: 100vh; }
+    </style>
+    <style>
+body[data-page="notebook"] #notebookEditor {
+    background: #fafafa;
+}
+
+body[data-page="notebook"] #notebookEditor > header {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+    width: 100%;
+    height: 50px;
+    min-height: 50px;
+    padding: 0 10px;
+    background: #1e55a0;
+    box-shadow: 0 2px 6px #0000001a;
+        overflow: visible;
+}
+
+    body[data-page="notebook"] .editor-object-navigation,
+    body[data-page="notebook"] .editor-object-actions {
+        flex: 0 0 auto;
+}
+
+    body[data-page="notebook"] .editor-top-button {
+        display: inline-flex;
+        width: 36px;
+        height: 36px;
+        min-width: 36px;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: 0;
+        border-radius: 9999px;
+        background: transparent;
+        color: #fff;
+        transition: background 120ms ease;
+}
+
+    body[data-page="notebook"] .editor-top-button:hover,
+    body[data-page="notebook"] .editor-top-button[aria-expanded="true"] {
+        background: #ffffff24;
+}
+
+    body[data-page="notebook"] .editor-top-button svg {
+        width: 21px;
+        height: 21px;
+}
+
+    body[data-page="notebook"] .editor-main-tools {
+        min-width: 0;
+        flex: 0 0 auto;
+        justify-content: center;
+        overflow: visible;
+}
+
+    body[data-page="notebook"] .shared-editor-tools {
+        gap: 4px;
+}
+
+    body[data-page="notebook"] .shared-editor-tools .main-tool-btn.is-active {
+    background: #fff;
+    color: #1f2937;
+    box-shadow: 0 2px 6px #00000030;
+}
+
+    body[data-page="notebook"] .gn-popover {
+        background: #fff;
+        border: 1px solid #0000000f;
+        border-radius: 18px;
+        box-shadow: 0 12px 36px #00000024, 0 2px 8px #00000014;
+        transform-origin: top center;
+        animation: notebookPopoverIn 140ms cubic-bezier(.16, 1, .3, 1);
+    }
+
+    body[data-page="notebook"] .popover-caret {
+        position: absolute;
+        top: -6px;
+        width: 12px;
+        height: 12px;
+        background: #fff;
+        transform: rotate(45deg);
+        border-top: 1px solid #0000000f;
+        border-left: 1px solid #0000000f;
+    }
+
+    @keyframes notebookPopoverIn {
+        from { opacity: 0; transform: translateY(-6px) scale(.97); }
+        to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+body[data-page="notebook"] .editor-controls-row {
+    top: 62px;
+}
+
+body[data-page="notebook"] .floating-card {
+    background: #fff;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    border-radius: 18px;
+    box-shadow: 0 3px 14px rgba(0, 0, 0, 0.07), 0 0 1px rgba(0, 0, 0, 0.14);
+}
+
+body[data-page="notebook"] .shared-floating-controls {
+    transition: left 160ms ease, right 160ms ease;
+}
+
+body[data-page="notebook"] .shared-floating-controls.is-sidebar-open {
+    left: 272px;
+    z-index: 30;
+}
+
+body[data-page="notebook"] #minimap-viewport-area {
+    display: block;
+    border: 0;
+    color: inherit;
+    text-align: left;
+}
+
+body[data-page="notebook"] .editor-tool-settings-container {
+    position: fixed;
+    z-index: 50;
+    inset: 50px 0 0;
+    pointer-events: none;
+}
+
+body[data-page="notebook"] .editor-tool-settings-container .toolbar-dropdown-group {
+    position: absolute;
+    top: 13px;
+    left: 50%;
+    width: 0;
+    height: 0;
+    pointer-events: none;
+}
+
+body[data-page="notebook"] .editor-tool-settings-container .toolbar-dropdown-menu {
+    top: 0;
+    right: auto;
+    left: 50%;
+    max-width: calc(100vw - 16px);
+    transform: translateX(-50%);
+    pointer-events: auto;
+}
+
+body[data-page="notebook"] .editor-tool-settings-container .notebook-floating-toolbar {
+    display: none;
+    width: max-content;
+    max-width: calc(100vw - 16px);
+    align-items: center;
+    gap: 7px;
+    overflow-x: auto;
+    padding: 6px 10px;
+    border: 1px solid rgba(0, 0, 0, 0.05);
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 3px 14px rgba(0, 0, 0, 0.07), 0 0 1px rgba(0, 0, 0, 0.14);
+    scrollbar-width: none;
+}
+
+body[data-page="notebook"] .editor-tool-settings-container .notebook-floating-toolbar::-webkit-scrollbar {
+    display: none;
+}
+
+body[data-page="notebook"] .editor-tool-settings-container .notebook-floating-toolbar.is-open {
+    display: flex;
+}
+
+body[data-page="notebook"] .notebook-pen-floating {
+    gap: 9px;
+}
+
+body[data-page="notebook"] .notebook-pen-floating .pen-choice-list {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+
+body[data-page="notebook"] .notebook-pen-floating .toolbar-menu-heading,
+body[data-page="notebook"] .notebook-pen-floating .pen-choice span,
+body[data-page="notebook"] .notebook-pen-floating #penSettingsTitle,
+body[data-page="notebook"] .notebook-pen-floating #penSettingsPanel label,
+body[data-page="notebook"] .notebook-pen-floating #penSettingsPanel .toolbar-menu-heading,
+body[data-page="notebook"] .notebook-pen-floating #penSettingsPanel .toolbar-popover-divider,
+body[data-page="notebook"] .notebook-pen-floating #applyPenSelection {
+    display: none !important;
+}
+
+body[data-page="notebook"] .notebook-pen-floating .pen-choice {
+    width: 36px;
+    min-height: 36px;
+    justify-content: center;
+    gap: 0;
+    padding: 0;
+    border-radius: 11px;
+}
+
+body[data-page="notebook"] .notebook-pen-floating .pen-choice svg {
+    width: 19px;
+    height: 19px;
+}
+
+body[data-page="notebook"] .notebook-pen-floating #penSettingsPanel {
+    position: static;
+    display: flex;
+    width: auto;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+body[data-page="notebook"] .notebook-pen-widths {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+body[data-page="notebook"] .notebook-pen-widths::before {
+    width: 1px;
+    height: 22px;
+    margin: 0 5px 0 2px;
+    background: #e5e7eb;
+    content: "";
+}
+
+body[data-page="notebook"] .notebook-pen-width {
+    display: grid;
+    width: 30px;
+    height: 32px;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: #64748b;
+}
+
+body[data-page="notebook"] .notebook-pen-width:hover {
+    background: #f3f4f6;
+}
+
+body[data-page="notebook"] .notebook-pen-width[aria-pressed="true"] {
+    background: #eff6ff;
+    color: #1e55a0;
+}
+
+body[data-page="notebook"] .notebook-pen-width span {
+    border-radius: 50%;
+    background: currentColor;
+}
+
+body[data-page="notebook"] .notebook-pen-floating .toolbar-color-options {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+
+body[data-page="notebook"] .notebook-pen-floating .pen-color,
+body[data-page="notebook"] .notebook-pen-floating .toolbar-custom-color {
+    width: 22px;
+    height: 22px;
+}
+
+body[data-page="notebook"] .notebook-pen-floating .toolbar-custom-color svg {
+    width: 17px;
+    height: 17px;
+}
+
+body[data-page="notebook"] .notebook-eraser-floating {
+    gap: 13px;
+}
+
+body[data-page="notebook"] .notebook-eraser-floating > label {
+    display: none;
+}
+
+body[data-page="notebook"] .notebook-eraser-sizes {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+body[data-page="notebook"] .notebook-eraser-size {
+    display: grid;
+    width: 30px;
+    height: 34px;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 9px;
+    background: transparent;
+    color: #64748b;
+}
+
+body[data-page="notebook"] .notebook-eraser-size:hover {
+    background: #f3f4f6;
+}
+
+body[data-page="notebook"] .notebook-eraser-size[aria-pressed="true"] {
+    outline: 2px solid #1a73e8;
+    outline-offset: 1px;
+}
+
+body[data-page="notebook"] .notebook-eraser-size span {
+    border: 2px solid currentColor;
+    border-radius: 50%;
+    background: repeating-conic-gradient(#9ca3af 0 25%, #fff 0 50%) 0 / 6px 6px;
+}
+
+body[data-page="notebook"] .page-counter {
+    position: static;
+    z-index: auto;
+    width: 100%;
+    height: 34px;
+    box-sizing: border-box;
+    justify-content: center;
+    gap: 2px;
+    padding: 0 3px;
+    border: 0;
+    border-top: 1px solid #f3f4f6;
+    border-radius: 0;
+    background: rgba(250, 250, 250, 0.7);
+    color: #374151;
+    font-size: 11px;
+    white-space: nowrap;
+    box-shadow: none;
+}
+
+body[data-page="notebook"] .page-counter-button {
+    width: 18px;
+    height: 24px;
+    flex: 0 0 18px;
+    font-size: 18px;
+}
+
+body[data-page="notebook"] .page-zoom-indicator {
+    padding-left: 4px;
+    font-size: 10px;
+}
+
+body[data-page="notebook"] .editor-workspace,
+body[data-page="notebook"] .editor-canvas-area {
+    background-color: #fafafa;
+}
+
+body[data-page="notebook"] .editor-page-sidebar {
+    top: 50px;
+    border-right: 1px solid #e5e7eb;
+    background: #fff;
+    box-shadow: 2px 0 12px #0000000a;
+}
+
+body[data-page="notebook"] .editor-page-sidebar h2 {
+    color: #1f2937;
+    font-weight: 600;
+}
+
+body[data-page="notebook"] .editor-page-thumbnail {
+    border-radius: 10px;
+    box-shadow: 0 2px 8px #00000012;
+}
+
+body[data-page="notebook"] .editor-page-thumbnail.is-selected {
+    border-color: #1e55a0;
+    box-shadow: 0 0 0 2px #1e55a022;
+}
+
+body[data-page="notebook"] .editor-history-controls {
+    border-color: #e5e7eb;
+    border-radius: 18px;
+    box-shadow: 0 3px 14px #00000012;
+}
+
+body[data-page="notebook"] .editor-floating-toolbar {
+    border-color: #0000000d;
+    border-radius: 18px;
+    box-shadow: 0 3px 14px #00000012;
+}
+
+body[data-page="notebook"] .floating-tool.is-active,
+body[data-page="notebook"] .toolbar-dropdown-group > .floating-tool.is-active {
+    background: #dbeafe;
+    color: #1e55a0;
+}
+
+body[data-page="notebook"] #notebookOptionsMenu,
+body[data-page="notebook"] .editor-info-popover,
+body[data-page="notebook"] .editor-recording-menu,
+body[data-page="notebook"] .editor-toolbar-settings {
+    border-color: #e5e7eb;
+    border-radius: 18px;
+    background: #fff;
+    box-shadow: 0 12px 36px #00000024, 0 2px 8px #00000014;
+}
+
+body[data-page="notebook"] .editor-info-popover,
+body[data-page="notebook"] .editor-recording-menu,
+body[data-page="notebook"] .editor-toolbar-settings {
+    top: 62px;
+}
+
+body[data-page="notebook"] .editor-recording-menu,
+body[data-page="notebook"] .editor-toolbar-settings {
+    padding: 12px;
+}
+
+body[data-page="notebook"] .editor-recording-menu button:hover,
+body[data-page="notebook"] #notebookOptionsMenu button:hover {
+    background: #f3f4f6;
+}
+
+@media (max-width: 900px) {
+    body[data-page="notebook"] #notebookEditor > header {
+        justify-content: flex-start;
+        overflow-x: auto;
+        padding: 0 8px;
+        scrollbar-width: none;
+    }
+
+    body[data-page="notebook"] #notebookEditor > header::-webkit-scrollbar {
+        display: none;
+    }
+
+    body[data-page="notebook"] #popover-tools {
+        position: fixed;
+        top: 56px;
+        left: 50%;
+        right: auto;
+        transform: translateX(-50%);
+    }
+
+    body[data-page="notebook"] #notebookEditor > header > .editor-main-tools {
+        justify-content: flex-start;
+        flex: 0 0 auto;
+    }
+
+    body[data-page="notebook"] #notebookEditor > header > .editor-object-actions {
+        margin-left: auto;
+    }
+}
+
+@media (max-width: 600px) {
+    body[data-page="notebook"] #notebookEditor > header {
+        gap: 6px;
+        padding: 0 6px;
+    }
+
+    body[data-page="notebook"] #editorToolSettingsContainer #penSettingsPanel {
+        top: calc(100% + 6px);
+        right: 0;
+        left: auto;
+    }
+
+    body[data-page="notebook"] .shared-floating-controls.is-sidebar-open {
+        right: 12px;
+        left: auto;
+    }
+}
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 h-full flex flex-col md:flex-row overflow-hidden font-sans select-none" data-page="notebook">
+
+    <!-- Mobile Header -->
+    <div id="mobileHeader" class="md:hidden bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shrink-0 z-20">
+        <div class="flex items-center gap-2">
+            <button id="toggleMenuBtn" class="p-2 text-slate-600 hover:bg-slate-100 rounded-xl">
+                <i data-lucide="menu" class="w-6 h-6"></i>
+            </button>
+            <button id="mobileSearchBtn" type="button" class="p-2 text-slate-600 hover:bg-slate-100 rounded-xl" aria-label="Notizen suchen">
+                <i data-lucide="search" class="w-5 h-5"></i>
+            </button>
+            <div class="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold text-xs">MN</div>
+            <span class="font-bold text-slate-900 tracking-tight">MyNotes</span>
+        </div>
+        <div class="relative">
+            <button id="mobileNewBtn" aria-expanded="false" aria-controls="mobileNewDropdown" class="bg-blue-600 text-white p-2 rounded-xl text-xs font-semibold flex items-center gap-1 active:scale-95">
+                <i data-lucide="plus" class="w-4 h-4"></i> Neu
+            </button>
+            <div id="mobileNewDropdown" class="new-dropdown hidden absolute right-0 top-full mt-2 w-[min(330px,calc(100vw-24px))] bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-[100]">
+                <div class="new-dropdown-items"></div>
+                <div class="new-dropdown-tip">Tipp: Tippe doppelt auf „+ Neu“, um eine Schnellnotiz zu erstellen.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Backdrop für Mobile Sidebar -->
+    <div id="sidebarBackdrop" class="hidden fixed inset-0 bg-black/40 z-30 md:hidden backdrop-blur-sm"></div>
+
+    <!-- Sidebar -->
+    <aside id="sidebar" class="fixed md:relative inset-y-0 left-0 w-64 bg-slate-100 border-r border-slate-200 flex flex-col justify-between p-4 z-40 transform -translate-x-full md:translate-x-0 transition-transform duration-200 ease-in-out">
+        <div>
+            <div class="hidden md:flex items-center gap-3 px-2 py-3 mb-6">
+                <div class="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white font-bold shadow-sm">MN</div>
+                <span class="text-xl font-bold tracking-tight text-slate-900">MyNotes</span>
+            </div>
+
+            <nav class="space-y-1">
+                <a id="documentsNav" href="#documents" aria-current="page" class="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-slate-200/70 text-slate-900 font-medium text-sm">
+                    <i data-lucide="folder" class="w-4 h-4 text-blue-600"></i> Dokumente
+                </a>
+                <a id="favoritesNav" href="#favorites" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors">
+                    <i data-lucide="star" class="w-4 h-4"></i> Favoriten
+                </a>
+                <button id="flashcardsNav" type="button" class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors text-left">
+                    <i data-lucide="layers-3" class="w-4 h-4"></i> Lernkarten
+                </button>
+                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors">
+                    <i data-lucide="share-2" class="w-4 h-4"></i> Geteilt
+                </a>
+                <a href="#" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors justify-between">
+                    <span class="flex items-center gap-3"><i data-lucide="store" class="w-4 h-4"></i> Marketplace</span>
+                    <span class="text-[10px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">50+</span>
+                </a>
+            </nav>
+            <div id="folderNavList" class="folder-nav-list" aria-label="Ordner"></div>
+        </div>
+
+        <div>
+            <section class="cloud-connect-card">
+                <button id="cloudAccountButton" type="button" class="cloud-connect-button">
+                    <i data-lucide="cloud"></i>
+                    <span id="cloudAccountLabel">Mit Supabase verbinden</span>
+                </button>
+                <p id="cloudSyncStatus" role="status">Lokale Speicherung aktiv</p>
+            </section>
+            <a id="trashNav" href="#trash" class="flex items-center gap-3 px-3 py-2.5 rounded-xl text-slate-600 hover:bg-slate-200/40 font-medium text-sm transition-colors">
+                <i data-lucide="trash-2" class="w-4 h-4"></i> Papierkorb
+            </a>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex flex-col h-full overflow-hidden bg-white">
+        
+        <!-- Desktop Header -->
+        <header id="desktopHeader" class="hidden md:flex h-16 border-b border-slate-100 px-8 items-center justify-between shrink-0">
+            <h1 id="mainPageTitle" class="text-2xl font-bold tracking-tight text-slate-900">Dokumente</h1>
+            
+            <div class="flex items-center gap-4 relative">
+                <div class="relative">
+                    <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                    <input id="globalSearchTrigger" type="search" placeholder="Notizen suchen..." aria-label="Notizbücher und Textseiten durchsuchen" class="pl-9 pr-4 py-1.5 bg-slate-100 border-none rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 w-64">
+                </div>
+                <button class="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition-colors">
+                    <i data-lucide="settings" class="w-5 h-5"></i>
+                </button>
+                
+                <div class="relative">
+                    <button id="newBtn" aria-expanded="false" aria-controls="newDropdown" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 shadow-sm transition-all active:scale-95">
+                        <span>+ Neu</span>
+                        <i data-lucide="chevron-down" class="w-4 h-4"></i>
+                    </button>
+
+                    <div id="newDropdown" class="new-dropdown hidden absolute right-0 mt-2 w-[330px] bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50">
+                        <div class="new-dropdown-items"></div>
+                        <div class="new-dropdown-tip">Tipp: Tippe doppelt auf „+ Neu“, um eine Schnellnotiz zu erstellen.</div>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Dashboard Content -->
+        <div id="dashboardView" class="flex-1 overflow-y-auto p-4 md:p-8">
+            <div class="max-w-6xl mx-auto space-y-6 md:space-y-8">
+                <div>
+                    <h2 class="text-lg md:text-xl font-bold text-slate-900">Keine leere Seite mehr</h2>
+                    <p class="text-xs md:text-sm text-slate-500">Lege mit einer Vorlage los</p>
+                    <button id="pdfWorkspaceOpen" type="button" class="pdf-workspace-launch">
+                        <i data-lucide="columns-2" aria-hidden="true"></i>
+                        PDF-Arbeitsbereich
+                    </button>
+                </div>
+
+                <!-- Deine Notizbücher Sektion -->
+                <div id="userNotebooksSection" class="hidden">
+                    <div class="notebook-list-heading">
+                        <h3 class="text-xs md:text-sm font-semibold text-slate-500">Deine Notizbücher</h3>
+                        <label class="notebook-sort-control">Sortieren
+                            <select id="notebookSortSelect" aria-label="Notizbücher sortieren">
+                                <option value="updated">Zuletzt geändert</option>
+                                <option value="created">Zuletzt hinzugefügt</option>
+                                <option value="title">Name A–Z</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div id="notebooksList" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 md:gap-4"></div>
+                </div>
+                <p id="notebooksEmptyState" class="hidden rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500"></p>
+            </div>
+        </div>
+
+        <section id="trashView" class="hidden flex-1 overflow-y-auto p-4 md:p-8">
+            <div class="max-w-6xl mx-auto space-y-6">
+                <div>
+                    <h2 class="text-lg md:text-xl font-bold text-slate-900">Papierkorb</h2>
+                    <p class="text-xs md:text-sm text-slate-500">Gelöschte Notizbücher können hier wiederhergestellt oder endgültig gelöscht werden.</p>
+                </div>
+                <div id="trashNotebookList" class="trash-notebook-list"></div>
+                <p id="trashEmptyState" class="hidden rounded-xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500">Der Papierkorb ist leer.</p>
+            </div>
+        </section>
+    </main>
+
+    <div id="cloudAuthModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+        <section class="cloud-auth-dialog" role="dialog" aria-modal="true" aria-labelledby="cloudAuthTitle">
+            <div class="cloud-auth-heading">
+                <div>
+                    <h2 id="cloudAuthTitle">Bei MyNotes anmelden</h2>
+                    <p id="cloudAuthMessage">Melde dich mit deinem Konto an.</p>
+                </div>
+                <button id="cloudAuthClose" type="button" class="cloud-auth-close" aria-label="Schließen">×</button>
+            </div>
+            <div id="cloudLoginForm" class="cloud-auth-form">
+                <label for="cloudEmail">E-Mail</label>
+                <input id="cloudEmail" type="email" autocomplete="email" required>
+                <label for="cloudPassword">Passwort</label>
+                <input id="cloudPassword" type="password" autocomplete="current-password" required>
+                <label class="cloud-remember-option">
+                    <input id="cloudKeepSignedIn" type="checkbox" checked>
+                    <span>Angemeldet bleiben</span>
+                </label>
+                <div class="cloud-auth-actions">
+                    <button id="cloudSignIn" type="button">Anmelden</button>
+                    <button id="cloudSignUp" class="hidden" type="button">Konto erstellen</button>
+                </div>
+                <button id="cloudShowSignUp" class="cloud-auth-mode-switch" type="button">Noch kein Konto? Registrieren</button>
+                <button id="cloudShowSignIn" class="cloud-auth-mode-switch hidden" type="button">Schon ein Konto? Anmelden</button>
+            </div>
+            <div id="cloudAccountPanel" class="cloud-account-panel hidden">
+                <p>Eingeloggt als <strong id="cloudAccountEmail"></strong></p>
+                <button id="cloudConflictsButton" type="button" class="hidden">Synchronisierungskonflikte</button>
+                <button id="cloudSyncNow" type="button">Jetzt synchronisieren</button>
+                <button id="cloudSignOut" type="button">Abmelden</button>
+            </div>
+        </section>
+    </div>
+
+    <div id="syncConflictModal" class="sync-conflict-modal hidden" role="dialog" aria-modal="true" aria-labelledby="syncConflictTitle">
+        <section class="sync-conflict-dialog">
+            <header>
+                <div>
+                    <h2 id="syncConflictTitle">Synchronisierungskonflikte</h2>
+                    <p>Wähle für jedes betroffene Notizbuch, welche Version erhalten bleiben soll.</p>
+                </div>
+                <button id="syncConflictClose" type="button" aria-label="Konflikte schließen">×</button>
+            </header>
+            <div id="syncConflictList" class="sync-conflict-list"></div>
+        </section>
+    </div>
+
+    <div id="globalSearchModal" class="global-search-modal hidden" role="dialog" aria-modal="true" aria-labelledby="globalSearchTitle">
+        <section class="global-search-dialog">
+            <header class="global-search-header">
+                <div>
+                    <h2 id="globalSearchTitle">In deinen Notizen suchen</h2>
+                    <p>Notizbuchnamen und gespeicherte Textseiten</p>
+                </div>
+                <button id="globalSearchClose" type="button" aria-label="Suche schließen">×</button>
+            </header>
+            <label class="sr-only" for="globalSearchInput">Suchbegriff</label>
+            <input id="globalSearchInput" type="search" autocomplete="off" placeholder="Suchbegriff eingeben">
+            <p id="globalSearchStatus" class="global-search-status" role="status" aria-live="polite">Suchbegriff eingeben.</p>
+            <div id="globalSearchResults" class="global-search-results"></div>
+        </section>
+    </div>
+
+    <div id="pdfWorkspaceModal" class="pdf-workspace-modal hidden" role="dialog" aria-modal="true" aria-labelledby="pdfWorkspaceTitle">
+        <section class="pdf-workspace-dialog">
+            <header class="pdf-workspace-header">
+                <div>
+                    <h2 id="pdfWorkspaceTitle">PDF-Arbeitsbereich</h2>
+                    <p>Dokumente vergleichen, Zitatkarten speichern und Textstellen verknüpfen</p>
+                </div>
+                <div class="pdf-workspace-header-actions">
+                    <button id="pdfWorkspaceHelpOpen" type="button" aria-expanded="false" aria-controls="pdfWorkspaceHelp">Anleitung</button>
+                    <button id="pdfWorkspaceClose" type="button" aria-label="PDF-Arbeitsbereich schließen">×</button>
+                </div>
+            </header>
+            <section id="pdfWorkspaceHelp" class="pdf-workspace-help hidden" aria-labelledby="pdfWorkspaceHelpTitle">
+                <div class="pdf-workspace-help-heading">
+                    <h3 id="pdfWorkspaceHelpTitle">Anleitung zum PDF-Arbeitsbereich</h3>
+                    <button id="pdfWorkspaceHelpClose" type="button" aria-label="Anleitung schließen">×</button>
+                </div>
+                <div class="pdf-workspace-help-content">
+                    <section>
+                        <h4>PDF importieren und öffnen</h4>
+                        <ol>
+                            <li>Gehe zur Dokumentübersicht und wähle <strong>Neu → Import</strong>.</li>
+                            <li>Wähle eine PDF-Datei. Sie wird als Notizbuch gespeichert; das Original bleibt separat erhalten.</li>
+                            <li>Kehre hierher zurück, wähle das PDF bei <strong>PDF hinzufügen</strong> und tippe auf <strong>Öffnen</strong>. Weitere PDFs kannst du genauso hinzufügen.</li>
+                        </ol>
+                    </section>
+                    <section>
+                        <h4>Seiten und Ansicht</h4>
+                        <p>Jedes Dokument hat eigene Seitensteuerung und Zoom. Mit <strong>‹</strong> und <strong>›</strong> oder dem Seitenfeld wechselst du die Seite. Mit den Pfeilen im Dokumentkopf ordnest du PDFs nebeneinander neu; <strong>Schließen</strong> entfernt eines aus der Ansicht.</p>
+                    </section>
+                    <section>
+                        <h4>Zitatkarten speichern</h4>
+                        <ol>
+                            <li>Markiere Text direkt auf einer PDF-Seite mit Maus oder Touch.</li>
+                            <li>Tippe bei diesem Dokument auf <strong>Zitat speichern</strong>, ergänze optional eine Notiz und Schlagwörter und speichere die Karte.</li>
+                            <li>Gespeicherte Zitatkarten erscheinen unter den Dokumenten. Über <strong>Zitat öffnen</strong> springst du zur markierten Textstelle.</li>
+                        </ol>
+                    </section>
+                    <section>
+                        <h4>Textstellen verknüpfen</h4>
+                        <ol>
+                            <li>Markiere den Ausgangstext und tippe auf <strong>Link-Quelle</strong>.</li>
+                            <li>Markiere den Zieltext in einem geöffneten PDF und tippe dort auf <strong>Link-Ziel</strong>.</li>
+                            <li>Über <strong>Ziel öffnen</strong> bei der gespeicherten Verknüpfung springst du zum Ziel.</li>
+                        </ol>
+                    </section>
+                    <section>
+                        <h4>Gescannte PDFs durchsuchen</h4>
+                        <p>Wähle die OCR-Sprache und tippe beim gewünschten Dokument auf <strong>OCR-Seite</strong>. Der erkannte Text wird lokal gespeichert und kann danach über die globale Suche gefunden werden. Sprachdaten müssen für den ersten OCR-Lauf online geladen werden.</p>
+                    </section>
+                    <p class="pdf-workspace-help-note"><strong>Hinweis:</strong> Dieser Arbeitsbereich dient zum Vergleichen, Zitieren, Verknüpfen und Durchsuchen von PDFs. Zum Schreiben, Markieren oder Zeichnen öffne das importierte PDF-Notizbuch im Editor. Änderungen überschreiben das Original-PDF nicht.</p>
+                </div>
+            </section>
+            <div class="pdf-workspace-toolbar">
+                <label for="pdfWorkspaceDocumentSelect">PDF hinzufügen</label>
+                <select id="pdfWorkspaceDocumentSelect" aria-label="PDF auswählen"></select>
+                <button id="pdfWorkspaceAddDocument" type="button">Öffnen</button>
+                <label for="pdfWorkspaceOcrLanguage">OCR-Sprache</label>
+                <select id="pdfWorkspaceOcrLanguage" aria-label="OCR-Sprache">
+                    <option value="deu">Deutsch</option>
+                    <option value="eng">English</option>
+                </select>
+                <span id="pdfWorkspaceStatus" role="status" aria-live="polite"></span>
+            </div>
+            <div class="pdf-workspace-layout">
+                <div class="pdf-workspace-main">
+                    <div id="pdfWorkspaceDocuments" class="pdf-workspace-documents"></div>
+                    <section class="pdf-workspace-saved">
+                        <div>
+                            <h3>Zitatkarten</h3>
+                            <div id="pdfWorkspaceCitations" class="pdf-workspace-card-list"></div>
+                        </div>
+                        <div>
+                            <h3>Dokumentverknüpfungen</h3>
+                            <div id="pdfWorkspaceLinks" class="pdf-workspace-card-list"></div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+            <div id="pdfCitationEditor" class="pdf-citation-editor hidden" role="dialog" aria-modal="true" aria-labelledby="pdfCitationEditorTitle">
+                <form id="pdfCitationForm" class="pdf-citation-editor-card">
+                    <h3 id="pdfCitationEditorTitle">Zitatkarte speichern</h3>
+                    <label for="pdfCitationNote">Eigene Notiz</label>
+                    <textarea id="pdfCitationNote" rows="3" maxlength="2000"></textarea>
+                    <label for="pdfCitationTags">Schlagwörter (durch Kommas getrennt)</label>
+                    <input id="pdfCitationTags" type="text" maxlength="300">
+                    <div class="pdf-citation-editor-actions">
+                        <button id="pdfCitationCancel" type="button">Abbrechen</button>
+                        <button type="submit">Zitat speichern</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+    </div>
+
+    <div id="flashcardsModal" class="flashcards-modal hidden" role="dialog" aria-modal="true" aria-labelledby="flashcardsTitle">
+        <section class="flashcards-dialog">
+            <header class="flashcards-header">
+                <div>
+                    <h2 id="flashcardsTitle">Lernkarten</h2>
+                    <p>Wähle ein Thema und lerne die Karten nacheinander</p>
+                </div>
+                <button id="flashcardsClose" type="button" aria-label="Lernkarten schließen">×</button>
+            </header>
+            <p id="flashcardStatus" class="flashcard-status" role="status" aria-live="polite">Lernkarten werden geladen …</p>
+            <div class="flashcards-content">
+                <section id="flashcardTopicList" class="flashcard-list-section" aria-label="Lernkarten-Themen">
+                    <h3>Deine Themen</h3>
+                    <div id="flashcardCardList" class="flashcard-topic-list"></div>
+                </section>
+                <section id="flashcardTopicStudy" class="flashcard-topic-study" aria-live="polite" hidden>
+                    <header class="flashcard-study-heading">
+                        <div>
+                            <h3 id="flashcardStudyTopic"></h3>
+                            <p id="flashcardStudyCounter"></p>
+                        </div>
+                        <button id="flashcardBackToTopics" type="button" class="flashcard-secondary-button">Alle Themen</button>
+                    </header>
+                    <article id="flashcardReviewCard" class="flashcard-review-card">
+                        <p id="flashcardSideLabel">Vorderseite</p>
+                        <strong id="flashcardQuestion" class="flashcard-question"></strong>
+                        <p id="flashcardAnswer" class="flashcard-answer" hidden></p>
+                        <button id="flashcardShowAnswer" type="button">Antwort anzeigen</button>
+                        <div id="flashcardRatings" class="flashcard-ratings hidden">
+                            <button type="button" data-rating="again">Nicht gewusst</button>
+                            <button type="button" data-rating="hard">Schwierig</button>
+                            <button type="button" data-rating="good">Gewusst</button>
+                            <button type="button" data-rating="easy">Sehr gut</button>
+                        </div>
+                        <button id="flashcardDeleteCurrent" type="button" class="flashcard-delete-button">Karte löschen</button>
+                    </article>
+                    <div class="flashcard-navigation">
+                        <button id="flashcardPreviousCard" type="button" class="flashcard-secondary-button">Zurück</button>
+                        <button id="flashcardNextCard" type="button">Nächste Karte</button>
+                    </div>
+                </section>
+            </div>
+        </section>
+    </div>
+
+    <div id="whiteboardModal" class="whiteboard-modal hidden" role="dialog" aria-modal="true" aria-labelledby="whiteboardHeading">
+        <section class="whiteboard-shell">
+            <header class="whiteboard-header">
+                <div class="whiteboard-title-group">
+                    <button id="whiteboardClose" type="button" class="whiteboard-icon-button" aria-label="Zur Dokumentübersicht">
+                        <span aria-hidden="true">⌂</span>
+                    </button>
+                    <div class="whiteboard-doc-info">
+                        <h2 id="whiteboardHeading">Whiteboard</h2>
+                        <div class="whiteboard-doc-name-row">
+                            <input id="whiteboardTitle" type="text" maxlength="120" aria-label="Whiteboard umbenennen">
+                            <button id="whiteboardDocMenuToggle" type="button" class="whiteboard-doc-menu-toggle" aria-label="Dokumentmenü öffnen" aria-expanded="false">
+                                <span aria-hidden="true">▾</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div id="whiteboardDocMenu" class="whiteboard-doc-menu hidden" role="menu" aria-label="Dokumentmenü">
+                    <div class="whiteboard-doc-menu-row">
+                        <span>Zuletzt bearbeitet</span>
+                        <strong>vor 1 Minute</strong>
+                    </div>
+                    <div class="whiteboard-doc-menu-row">
+                        <span>Sync-Status</span>
+                        <strong class="status-success">Synchronisiert</strong>
+                    </div>
+                    <div class="whiteboard-doc-menu-row">
+                        <span>Für offline gespeichert</span>
+                        <strong>Bereit</strong>
+                    </div>
+                    <div class="whiteboard-doc-menu-divider"></div>
+                    <button type="button" class="whiteboard-doc-menu-action" data-whiteboard-action="rename">
+                        <span aria-hidden="true">✎</span>
+                        Umbenennen
+                    </button>
+                </div>
+                <div class="whiteboard-header-actions">
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-action="board-overview" aria-label="Boardübersicht">
+                        <span aria-hidden="true">▣</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-action="search" aria-label="Suchen">
+                        <span aria-hidden="true">⌕</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-action="smart-tools" aria-label="Intelligente Funktionen">
+                        <span aria-hidden="true">✦</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-action="document-tools" aria-label="Dokumentfunktionen">
+                        <span aria-hidden="true">▤</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-tool="select" aria-label="Auswahlwerkzeug">
+                        <span aria-hidden="true">◧</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-tool="pen" aria-label="Stiftwerkzeug" aria-pressed="true">
+                        <span aria-hidden="true">✎</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-tool="eraser" aria-label="Radierer">
+                        <span aria-hidden="true">⌫</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-tool="text" aria-label="Textwerkzeug">
+                        <span aria-hidden="true">T</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-action="add-image" aria-label="Bild einfügen">
+                        <span aria-hidden="true">🖼</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-action="shape" aria-label="Formen">
+                        <span aria-hidden="true">△</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-action="sticky" aria-label="Haftnotizen">
+                        <span aria-hidden="true">◫</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-action="more-tools" aria-label="Mehr Werkzeuge">
+                        <span aria-hidden="true">⋯</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-action="audio" aria-label="Audio">
+                        <span aria-hidden="true">◉</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool whiteboard-header-add" data-whiteboard-action="new" aria-label="Neu">
+                        <span aria-hidden="true">＋</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-action="export-board" aria-label="Teilen und exportieren">
+                        <span aria-hidden="true">⇪</span>
+                    </button>
+                    <button type="button" class="whiteboard-header-tool" data-whiteboard-action="more-menu" aria-label="Mehr Optionen">
+                        <span aria-hidden="true">⋮</span>
+                    </button>
+                    <span id="whiteboardSaveStatus" class="whiteboard-save-status" role="status">Bereit</span>
+                </div>
+            </header>
+            <nav class="whiteboard-toolbar" aria-label="Whiteboard-Werkzeuge">
+                <button type="button" data-whiteboard-tool="select" aria-pressed="false">Auswahl</button>
+                <button type="button" data-whiteboard-tool="lasso" aria-pressed="false">Lasso</button>
+                <button type="button" data-whiteboard-tool="pen" aria-pressed="true">Stift</button>
+                <button type="button" data-whiteboard-tool="highlighter" aria-pressed="false">Textmarker</button>
+                <button type="button" data-whiteboard-tool="eraser" aria-pressed="false">Radierer</button>
+                <button type="button" data-whiteboard-tool="laser" aria-pressed="false">Laserpointer</button>
+                <button type="button" data-whiteboard-tool="shape" aria-pressed="false">Form</button>
+                <select id="whiteboardShapeType" aria-label="Form auswählen">
+                    <option value="line">Linie</option><option value="arrow">Pfeil</option>
+                    <option value="doubleArrow">Doppelpfeil</option><option value="rect">Rechteck</option>
+                    <option value="roundedRect">Abgerundetes Rechteck</option><option value="ellipse">Ellipse</option>
+                    <option value="triangle">Dreieck</option><option value="diamond">Raute</option>
+                    <option value="speechBubble">Sprechblase</option><option value="polygon">Vieleck</option>
+                    <option value="freeform">Freiform</option>
+                </select>
+                <button type="button" data-whiteboard-tool="text" aria-pressed="false">Text</button>
+                <button type="button" data-whiteboard-tool="sticky" aria-pressed="false">Haftnotiz</button>
+                <button type="button" data-whiteboard-tool="mindmap" aria-pressed="false">Mindmap-Knoten</button>
+                <button type="button" data-whiteboard-tool="hand" aria-pressed="false">Verschieben</button>
+                <button type="button" data-whiteboard-action="add-image">Bild</button>
+                <button type="button" data-whiteboard-action="add-pdf">PDF-Seiten</button>
+                <button type="button" data-whiteboard-action="undo" aria-label="Rückgängig">↶</button>
+                <button type="button" data-whiteboard-action="redo" aria-label="Wiederholen">↷</button>
+                <button type="button" data-whiteboard-action="duplicate-object">Objekt duplizieren</button>
+                <button type="button" data-whiteboard-action="delete-object">Auswahl löschen</button>
+                <button type="button" data-whiteboard-action="zoom-selection">Auswahl zoomen</button>
+                <button type="button" data-whiteboard-action="group">Gruppieren</button>
+                <button type="button" data-whiteboard-action="ungroup">Gruppierung lösen</button>
+                <button type="button" data-whiteboard-action="lock">Sperren / entsperren</button>
+                <button type="button" data-whiteboard-action="pdf-background">PDF als Hintergrund fixieren</button>
+                <button type="button" data-whiteboard-action="bring-front">In den Vordergrund</button>
+                <button type="button" data-whiteboard-action="send-back">In den Hintergrund</button>
+                <button type="button" data-whiteboard-action="mindmap-child">Unterthema verbinden</button>
+            </nav>
+            <div class="whiteboard-properties" aria-label="Werkzeugeinstellungen">
+                <label>Stifttyp <select id="whiteboardPenType">
+                    <option value="fountain">Füllfederhalter</option><option value="ballpoint">Kugelschreiber</option>
+                    <option value="pencil">Bleistift</option><option value="fineliner">Fineliner</option>
+                    <option value="brush">Pinselstift</option><option value="glaze">Lasurstift</option>
+                </select></label>
+                <label>Farbe <input id="whiteboardColor" type="color" value="#172554"></label>
+                <div id="whiteboardColorPalette" class="whiteboard-color-palette" role="group" aria-label="Farbpalette">
+                    <button type="button" data-whiteboard-color="#111827" aria-label="Schwarz"></button>
+                    <button type="button" data-whiteboard-color="#2563eb" aria-label="Blau"></button>
+                    <button type="button" data-whiteboard-color="#dc2626" aria-label="Rot"></button>
+                    <button type="button" data-whiteboard-color="#16a34a" aria-label="Grün"></button>
+                    <button type="button" data-whiteboard-color="#f97316" aria-label="Orange"></button>
+                    <button type="button" data-whiteboard-color="#9333ea" aria-label="Violett"></button>
+                    <button type="button" data-whiteboard-color="#eab308" aria-label="Gelb"></button>
+                    <button type="button" data-whiteboard-color="#ffffff" aria-label="Weiß"></button>
+                    <div class="whiteboard-recent-colors" id="whiteboardRecentColors"></div>
+                </div>
+                <label>Größe <input id="whiteboardWidth" type="range" min="1" max="36" value="4"><output id="whiteboardWidthValue">4</output></label>
+                <label>Deckkraft <input id="whiteboardOpacity" type="range" min="10" max="100" value="100"><output id="whiteboardOpacityValue">100%</output></label>
+                <label>Druck <input id="whiteboardPressure" type="range" min="0" max="100" value="100"><output id="whiteboardPressureValue">100%</output></label>
+                <label>Glättung <input id="whiteboardSmoothing" type="range" min="0" max="90" value="20"><output id="whiteboardSmoothingValue">20%</output></label>
+                <label>Füllung <input id="whiteboardFillColor" type="color" value="#dbeafe"></label>
+                <label>Form füllen <input id="whiteboardShapeFill" type="checkbox"></label>
+                <label>Gestrichelt <input id="whiteboardShapeDashed" type="checkbox"></label>
+                <label>Formerkennung <input id="whiteboardAutoShape" type="checkbox"></label>
+                <label>Radierer <select id="whiteboardEraserMode">
+                    <option value="stroke">Ganze Striche</option><option value="partial">Teilstriche</option>
+                    <option value="object">Objekte</option><option value="area">Bereich</option>
+                </select></label>
+                <label>Eingabe <select id="whiteboardInputMode">
+                    <option value="automatic">Automatisch</option><option value="stylus-only">Nur Stift</option>
+                    <option value="finger-navigate">Finger navigiert, Stift schreibt</option>
+                    <option value="finger-draw">Finger schreibt</option>
+                </select></label>
+                <label>Raster <select id="whiteboardGrid">
+                    <option value="none">Ohne</option><option value="dots" selected>Punkte</option>
+                    <option value="lines">Linien</option><option value="squares">Karo</option>
+                </select></label>
+                <label>Hintergrund <input id="whiteboardBackground" type="color" value="#ffffff"></label>
+            </div>
+            <div class="whiteboard-floating-actions" aria-label="Rückgängig/Wiederholen">
+                <button type="button" data-whiteboard-action="undo" aria-label="Rückgängig">↶</button>
+                <button type="button" data-whiteboard-action="redo" aria-label="Wiederholen">↷</button>
+            </div>
+            <div class="whiteboard-workspace">
+                <aside class="whiteboard-board-sidebar">
+                    <div class="whiteboard-board-sidebar-heading">
+                        <h3>Whiteboards</h3>
+                        <button type="button" data-whiteboard-action="new" aria-label="Whiteboard erstellen">+</button>
+                    </div>
+                    <div id="whiteboardBoardList" class="whiteboard-board-list"></div>
+                </aside>
+                <main id="whiteboardViewport" class="whiteboard-viewport" aria-label="Unbegrenzte Whiteboard-Arbeitsfläche">
+                    <canvas id="whiteboardCanvas"></canvas>
+                    <div id="whiteboardCanvasHint" class="whiteboard-canvas-hint">Zeichne, füge Objekte ein oder verschiebe die Arbeitsfläche. Touchgesten zoomen und navigieren.</div>
+                </main>
+            </div>
+            <footer class="whiteboard-footer">
+                <p id="whiteboardStatus" role="status" aria-live="polite">Lokal gespeichert · offline nutzbar</p>
+                <div class="whiteboard-zoom-controls">
+                    <button type="button" data-whiteboard-action="zoom-out" aria-label="Verkleinern">−</button>
+                    <output id="whiteboardZoomValue">100%</output>
+                    <button type="button" data-whiteboard-action="zoom-in" aria-label="Vergrößern">+</button>
+                    <button type="button" data-whiteboard-action="fit">Alles anzeigen</button>
+                </div>
+            </footer>
+        </section>
+        <input id="whiteboardImageInput" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" class="hidden">
+        <input id="whiteboardPdfInput" type="file" accept="application/pdf,.pdf" class="hidden">
+        <input id="whiteboardImportInput" type="file" accept=".whiteboard,.zip,application/zip" class="hidden">
+        <div id="whiteboardTextDialog" class="whiteboard-text-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="whiteboardTextHeading">
+            <form id="whiteboardTextForm" class="whiteboard-text-card">
+                <h3 id="whiteboardTextHeading">Text einfügen</h3>
+                <label for="whiteboardTextInput">Text</label>
+                <textarea id="whiteboardTextInput" rows="5" maxlength="10000" required></textarea>
+                <div class="whiteboard-text-format">
+                    <label>Schrift
+                        <select id="whiteboardTextFont">
+                            <option value="Arial, sans-serif">Arial</option>
+                            <option value="Georgia, serif">Georgia</option>
+                            <option value="Verdana, sans-serif">Verdana</option>
+                            <option value="monospace">Monospace</option>
+                        </select>
+                    </label>
+                    <label>Farbe <input id="whiteboardTextColor" type="color" value="#172554"></label>
+                    <label>Größe <input id="whiteboardTextSize" type="number" min="10" max="96" value="26"></label>
+                    <label>Ausrichtung
+                        <select id="whiteboardTextAlign">
+                            <option value="left">Links</option><option value="center">Zentriert</option><option value="right">Rechts</option>
+                        </select>
+                    </label>
+                    <label><input id="whiteboardTextBold" type="checkbox"> Fett</label>
+                    <label><input id="whiteboardTextItalic" type="checkbox"> Kursiv</label>
+                    <label><input id="whiteboardTextUnderline" type="checkbox"> Unterstrichen</label>
+                </div>
+                <div class="whiteboard-text-actions">
+                    <button type="button" id="whiteboardTextCancel">Abbrechen</button>
+                    <button type="submit">Speichern</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- MODAL: Notizbuch erstellen -->
+    <div id="notebookModal" class="hidden fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-0 md:p-4">
+        <div class="notebook-create-dialog bg-white w-full md:max-w-6xl h-full md:h-[min(88vh,900px)] md:rounded-3xl shadow-2xl border border-slate-100 flex flex-col md:flex-row overflow-hidden">
+            <aside class="notebook-create-sidebar bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 p-4 md:p-6 shrink-0">
+                <label for="nbTitle" class="block text-sm font-semibold text-slate-700 mb-2">Titel</label>
+                <input type="text" id="nbTitle" value="Unbenanntes Notizbuch" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+
+                <div class="mt-5">
+                    <h3 class="text-sm font-semibold text-slate-700 mb-3">Umschlag</h3>
+                    <div id="coverOptions" class="grid grid-cols-2 gap-2" aria-label="Umschlag auswählen"></div>
+                </div>
+
+                <div class="mt-5">
+                    <h3 class="text-sm font-semibold text-slate-700 mb-3">Papier</h3>
+                    <div id="paperSelectionPreview" class="rounded-xl border-2 border-blue-600 bg-white p-3">
+                        <div id="selectedPaperPreview" class="paper-preview h-40 rounded-md shadow-sm"></div>
+                        <p id="selectedPaperName" class="mt-2 text-center text-sm font-medium text-slate-700"></p>
+                    </div>
+                </div>
+            </aside>
+
+            <div class="flex-1 flex flex-col min-h-0 bg-white">
+                <div class="notebook-create-toolbar p-3 md:px-6 border-b border-slate-100 flex flex-wrap items-center gap-2 shrink-0">
+                    <label class="sr-only" for="pageSizeSelect">Papierformat</label>
+                    <select id="pageSizeSelect" class="create-select" aria-label="Papierformat">
+                        <option>Goodnotes Standard</option>
+                        <option>A7</option><option>A6</option><option>A5</option><option>A4</option><option>A3</option>
+                        <option>Letter-Format</option><option>Tabloid-Format</option>
+                    </select>
+                    <label class="sr-only" for="colorSelect">Papierfarbe</label>
+                    <select id="colorSelect" onchange="updatePaperColorFilter()" class="create-select" aria-label="Papierfarbe">
+                        <option value="creme">Creme</option>
+                        <option value="weiss">Weißes Papier</option>
+                        <option value="sepia">Sepia</option>
+                        <option value="dunkel">Dunkles Papier</option>
+                        <option value="gelb">Gelbes Papier (älterer Stil)</option>
+                    </select>
+                    <label class="sr-only" for="languageSelect">Sprache</label>
+                    <select id="languageSelect" class="create-select" aria-label="Sprache">
+                        <option>Deutsch</option><option>English</option><option>Français</option><option>Español</option><option>Italiano</option>
+                    </select>
+                    <div class="flex rounded-full border border-slate-200 p-1" role="group" aria-label="Seitenausrichtung">
+                        <button type="button" class="orientation-button is-selected" data-orientation="portrait" aria-label="Hochformat" aria-pressed="true"><i data-lucide="book"></i></button>
+                        <button type="button" class="orientation-button" data-orientation="landscape" aria-label="Querformat" aria-pressed="false"><i data-lucide="book-open"></i></button>
+                    </div>
+                </div>
+
+                <div class="flex-1 min-h-0 overflow-y-auto p-4 md:p-6" id="templateGallery"></div>
+
+                <div class="p-4 border-t border-slate-100 flex items-center justify-end gap-2 shrink-0 bg-white">
+                    <button onclick="closeNotebookModal()" class="px-4 py-2 text-xs md:text-sm font-medium text-slate-600 rounded-xl">Abbrechen</button>
+                    <button onclick="createNotebook()" class="px-4 py-2 text-xs md:text-sm font-medium bg-blue-600 text-white rounded-xl shadow-sm">Notizbuch erstellen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <input id="documentImportInput" type="file" accept=".pdf,.goodnotes,.zip,application/pdf,application/zip" class="hidden" aria-label="PDF oder Goodnotes-Datei importieren">
+    <input id="backupImportInput" type="file" accept=".json,application/json" class="hidden" aria-label="MyNotes JSON-Backup importieren">
+    <script>
+        window.MYNOTES_SUPABASE_CONFIG = Object.freeze({
+            url: 'https://ougmidncnjhnxzffynnr.supabase.co',
+            publishableKey: 'sb_publishable_WpJ_arBnO8_S0vvFuVDNAQ_zl0fCM_F'
+        });
+    </script>
+    <script src="app.js"></script>
+    <script src="syncManager.js"></script>
+    <script src="whiteboardEngine.js"></script>
+    <script src="whiteboard.js"></script>
+    <script src="templateManager.js"></script>
+    <script src="editorState.js"></script>
+    <script src="audioSync.js"></script>
+    <script src="editorCanvas.js"></script>
+    <script src="editorInput.js"></script>
+    <script src="pdfManager.js"></script>
+    <script src="editorToolbar.js"></script>
+    <script src="notebookManager.js"></script>
+    <script src="searchManager.js"></script>
+    <script src="crossLinker.js"></script>
+    <script src="ocrManager.js"></script>
+    <script src="pdfWorkspace.js"></script>
+    <script src="appInit.js"></script>
+    <script src="aiAssistant.js"></script>
+</body>
+</html>

@@ -173,7 +173,10 @@ function attachEditorInteractions() {
             const menu = document.getElementById(dropdownTrigger.dataset.toolbarDropdownToggle);
             const isOpening = !menu?.classList.contains('is-open');
             if (dropdownTrigger.dataset.toolbarGroup === 'pen') {
-                if (isOpening) stagePenChoice(activePenTool);
+                if (isOpening) {
+                    setEditorTool(activePenTool);
+                    stagePenChoice(activePenTool);
+                }
             } else {
                 setEditorTool(dropdownTrigger.dataset.editorTool);
             }
@@ -754,6 +757,8 @@ function attachEditorInteractions() {
             editor.querySelectorAll('[data-pen-color]').forEach(colorButton => {
                 colorButton.classList.toggle('is-color-selected', colorButton === button);
             });
+            penSettings[pendingPenTool] = { ...pendingPenSettings };
+            setEditorTool(pendingPenTool);
         });
     });
     editor.querySelectorAll('[data-pen-choice]').forEach(button => {
@@ -761,7 +766,8 @@ function attachEditorInteractions() {
             if (isNotebookReadOnly) return;
             const tool = button.dataset.penChoice;
             stagePenChoice(tool);
-            document.getElementById('penSettingsPanel').classList.add('is-open');
+            penSettings[pendingPenTool] = { ...pendingPenSettings };
+            setEditorTool(pendingPenTool);
         });
     });
     document.getElementById('applyPenSelection').addEventListener('click', () => {
@@ -784,9 +790,13 @@ function attachEditorInteractions() {
     document.getElementById('editorColorPicker').addEventListener('input', event => {
         pendingPenSettings.color = event.target.value;
         editor.querySelectorAll('[data-pen-color]').forEach(colorButton => colorButton.classList.remove('is-color-selected'));
+        penSettings[pendingPenTool] = { ...pendingPenSettings };
+        setEditorTool(pendingPenTool);
     });
     document.getElementById('penWidthSelect').addEventListener('change', event => {
         pendingPenSettings.width = Number(event.target.value);
+        penSettings[pendingPenTool] = { ...pendingPenSettings };
+        setEditorTool(pendingPenTool);
     });
     document.getElementById('eraserWidthSelect').addEventListener('change', event => {
         activeEraserWidth = Number(event.target.value);

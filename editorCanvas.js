@@ -492,7 +492,12 @@ function stagePenChoice(tool) {
         button.setAttribute('aria-pressed', String(selected));
     });
     const widthSelect = document.getElementById('penWidthSelect');
-    if (widthSelect) widthSelect.value = String(pendingPenSettings.width);
+    if (widthSelect) {
+        widthSelect.value = String(pendingPenSettings.width);
+        document.querySelectorAll('[data-notebook-pen-width]').forEach(button => {
+            button.setAttribute('aria-pressed', String(button.dataset.notebookPenWidth === widthSelect.value));
+        });
+    }
     const colorPicker = document.getElementById('editorColorPicker');
     if (colorPicker) colorPicker.value = pendingPenSettings.color;
     document.querySelectorAll('[data-pen-color]').forEach(button => {
@@ -623,6 +628,8 @@ function setNotebookReadOnlyMode(enabled) {
         '.editor-floating-toolbar button',
         '.editor-history-controls button',
         '#editorPageSidebar .editor-add-page',
+        '.notebook-pen-width',
+        '.notebook-eraser-size',
         '[data-pen-choice]',
         '[data-pen-color]',
         '[data-toolbar-toggle]',
@@ -1414,6 +1421,10 @@ function toggleToolbarDropdown(menuId) {
     const shouldOpen = !menu.classList.contains('is-open');
     closeToolbarDropdowns();
     menu.classList.toggle('is-open', shouldOpen);
-    menu.parentElement.querySelector('[data-toolbar-dropdown-toggle]')?.setAttribute('aria-expanded', String(shouldOpen));
+    document.querySelectorAll('[data-toolbar-dropdown-toggle]').forEach(button => {
+        if (button.dataset.toolbarDropdownToggle === menuId) {
+            button.setAttribute('aria-expanded', String(shouldOpen));
+        }
+    });
 }
 

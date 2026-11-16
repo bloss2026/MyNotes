@@ -1,17 +1,18 @@
-const CACHE_NAME = 'mynotes-v47';
+const CACHE_NAME = 'mynotes-v80';
 
 const CORE_ASSETS = [
-    './',
     './index.html',
-    './style.css',
-    './notebook-create.css',
-    './editor.css',
-    './dashboard.css',
-    './editor-panels.css',
-    './overlays.css',
-    './pdf-workspace.css',
+    './dashboard.html',
+    './notebook.html',
+    './whiteboard.html',
+    './pdf-workspace.html',
+    './login.js',
     './app.js',
     './syncManager.js',
+    './whiteboardEngine.js',
+    './whiteboard.js',
+    './whiteboardTemplateAdapter.js',
+    './editorToolbar.js',
     './templateManager.js',
     './editorState.js',
     './audioSync.js',
@@ -24,6 +25,8 @@ const CORE_ASSETS = [
     './ocrManager.js',
     './pdfWorkspace.js',
     './appInit.js',
+    './aiAssistant.js',
+    './aiWorker.js',
     './flashcards.js',
     './backupManager.js',
     './manifest.json',
@@ -46,7 +49,10 @@ const REMOTE_ASSETS = [
     'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1/tesseract-core-simd.wasm.js'
 ];
 
-const REMOTE_ASSET_SET = new Set(REMOTE_ASSETS);
+const ON_DEMAND_REMOTE_ASSETS = new Set([
+    'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1'
+]);
+const REMOTE_ASSET_SET = new Set([...REMOTE_ASSETS, ...ON_DEMAND_REMOTE_ASSETS]);
 const OCR_LANGUAGE_ASSET_ORIGIN = 'https://tessdata.projectnaptha.com';
 
 self.addEventListener('install', event => {
@@ -93,7 +99,9 @@ self.addEventListener('fetch', event => {
 
     event.respondWith((async () => {
         const cache = await caches.open(CACHE_NAME);
-        const cached = await cache.match(request);
+        const cached = await cache.match(request, {
+            ignoreSearch: isLocalAsset && request.mode === 'navigate'
+        });
         if (cached && !isLocalAsset) return cached;
 
         try {

@@ -110,13 +110,28 @@ async function extractGoodnotesPages(file) {
 
 async function importDocumentFile(file) {
     const extension = file.name.split('.').pop().toLowerCase();
-    let pages;
-    const originalPdf = extension === 'pdf'
-        ? file.slice(0, file.size, 'application/pdf')
-        : null;
+    if (document.body.dataset.page === 'pdf-workspace' && extension !== 'pdf') {
+        throw new Error('Im PDF-Arbeitsbereich können nur PDF-Dateien importiert werden.');
+    }
     if (extension === 'pdf') {
-        pages = await renderPdfPages(await file.arrayBuffer());
-    } else if (extension === 'goodnotes' || extension === 'zip') {
+        await ensureNotebookStorage();
+        const docId = `pdf-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`;
+        await notebookDb.pdfOriginals.add({
+            notebookId: docId,
+            fileName: file.name,
+            importedAt: new Date().toISOString(),
+            blob: file.slice(0, file.size, 'application/pdf')
+        });
+        if (document.body.dataset.page === 'pdf-workspace') {
+            await openPdfWorkspace(docId);
+        } else {
+            window.location.href = `./pdf-workspace.html?id=${encodeURIComponent(docId)}`;
+        }
+        return;
+    }
+
+    let pages;
+    if (extension === 'goodnotes' || extension === 'zip') {
         pages = await extractGoodnotesPages(file);
     } else {
         throw new Error('Bitte wähle eine PDF- oder Goodnotes-Datei aus.');
@@ -142,20 +157,12 @@ async function importDocumentFile(file) {
     };
     notebooks.push(notebook);
     try {
-        await notebookDb.transaction('rw', notebookDb.pages, notebookDb.pdfOriginals, async () => {
+        await notebookDb.transaction('rw', notebookDb.pages, async () => {
             await notebookDb.pages.bulkPut(pages.map((page, pageIndex) => ({
                 ...page,
                 notebookId: String(id),
                 pageIndex
             })));
-            if (originalPdf) {
-                await notebookDb.pdfOriginals.put({
-                    notebookId: String(id),
-                    fileName: file.name,
-                    importedAt: new Date().toISOString(),
-                    blob: originalPdf
-                });
-            }
         });
         saveNotebookMetadata(notebook.id);
     } catch (error) {
@@ -515,7 +522,11 @@ function runEditorAction(action) {
     else if (action === 'delete-notebook') deleteNotebook(currentNotebookId);
     else if (action === 'save') saveNotebookContent(currentNotebookId);
     else if (action === 'delete-selected-shape') deleteSelectedShape();
-    else if (action === 'toggle-sidebar') document.getElementById('editorPageSidebar')?.classList.toggle('is-open');
+    else if (action === 'toggle-sidebar') {
+        const sidebar = document.getElementById('editorPageSidebar');
+        sidebar?.classList.toggle('is-open');
+        document.querySelector('.shared-floating-controls')?.classList.toggle('is-sidebar-open', sidebar?.classList.contains('is-open') === true);
+    }
     else if (action === 'toggle-read-only') {
         if (!isNotebookReadOnly) persistNotebookPages();
         setNotebookReadOnlyMode(!isNotebookReadOnly);
@@ -532,12 +543,16 @@ function runEditorAction(action) {
         popover?.classList.toggle('is-open', shouldOpen);
         document.querySelector('[data-editor-action="toggle-info"]')?.setAttribute('aria-expanded', String(shouldOpen));
     } else if (action === 'toggle-recording-menu') {
-        document.getElementById('recordingMenu')?.classList.toggle('is-open');
+        const menu = document.getElementById('recordingMenu');
+        const shouldOpen = !menu?.classList.contains('is-open');
+        menu?.classList.toggle('is-open', shouldOpen);
+        document.querySelector('[data-editor-action="toggle-recording-menu"]')?.setAttribute('aria-expanded', String(shouldOpen));
     } else if (action === 'show-recordings') {
         showAudioRecordings();
         document.getElementById('recordingMenu')?.classList.remove('is-open');
     }
     else if (action === 'search') {
+        closeMenu();
         openGlobalSearch();
     } else if (action === 'toggle-ruler') {
         document.getElementById('editorRuler')?.classList.toggle('is-visible');

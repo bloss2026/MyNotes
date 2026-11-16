@@ -176,6 +176,8 @@ function handleNewAction(action) {
         createQuickNote();
     } else if (action === 'folder') {
         createNotebookFolder();
+    } else if (action === 'whiteboard') {
+        void createWhiteboardFromDashboard();
     } else if (action === 'import') {
         document.getElementById('documentImportInput')?.click();
     } else if (action === 'backup-export') {
@@ -422,6 +424,36 @@ if (notebookDb) {
         syncVersions: 'notebookId, localUpdatedAt, remoteUpdatedAt',
         syncConflicts: 'notebookId, detectedAt'
     });
+    notebookDb.version(6).stores({
+        pages: '[notebookId+pageIndex], notebookId',
+        flashcardDecks: 'id',
+        flashcards: 'id, deckId, dueAt',
+        pdfOriginals: 'notebookId',
+        pdfCitations: 'id, notebookId, docId, createdAt, *tags',
+        documentLinks: 'id, notebookId, sourceDocId, targetDocId, createdAt',
+        pdfWorkspace: 'id, updatedAt',
+        syncQueue: 'id, notebookId, queuedAt, nextAttemptAt, attempts',
+        syncVersions: 'notebookId, localUpdatedAt, remoteUpdatedAt',
+        syncConflicts: 'notebookId, detectedAt',
+        whiteboards: 'id, title, updatedAt, favorite, deletedAt',
+        whiteboardAssets: 'id, whiteboardId'
+    });
+    notebookDb.version(7).stores({
+        pages: '[notebookId+pageIndex], notebookId',
+        flashcardDecks: 'id',
+        flashcards: 'id, deckId, dueAt',
+        pdfOriginals: 'notebookId',
+        pdfCitations: 'id, notebookId, docId, createdAt, *tags',
+        documentLinks: 'id, notebookId, sourceDocId, targetDocId, createdAt',
+        pdfWorkspace: 'id, updatedAt',
+        syncQueue: 'id, notebookId, queuedAt, nextAttemptAt, attempts',
+        syncVersions: 'notebookId, localUpdatedAt, remoteUpdatedAt',
+        syncConflicts: 'notebookId, detectedAt',
+        whiteboards: 'id, title, updatedAt, favorite, deletedAt',
+        whiteboardAssets: 'id, whiteboardId',
+        aiTasks: 'id, sourceKey, sourceType, sourceId, pageIndex, createdAt, done',
+        aiEmbeddings: 'id, sourceType, sourceId, modelId, updatedAt'
+    });
 }
 
 async function initializeNotebookStorage() {
@@ -450,6 +482,7 @@ async function initializeNotebookStorage() {
 let notebookStorageReady;
 
 async function initializeFlashcards() {
+    if (!document.getElementById('flashcardsModal')) return;
     try {
         if (!await notebookStorageReady) throw notebookStorageError || new Error('IndexedDB ist nicht verfügbar.');
         const { attachFlashcardManager } = await import('./flashcards.js');

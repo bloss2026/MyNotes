@@ -3,6 +3,8 @@ let pdfWorkspaceDocuments = [];
 let pdfWorkspacePdfCache = new Map();
 let pdfWorkspacePendingLinkSource = null;
 let pdfWorkspacePendingCitation = null;
+let pdfWorkspaceLassoEnabled = false;
+let pdfWorkspaceLassoSelection = null;
 
 function setPdfWorkspaceStatus(message) {
     const status = document.getElementById('pdfWorkspaceStatus');
@@ -43,7 +45,39 @@ async function persistPdfWorkspace() {
     scheduleCloudSync();
 }
 
-async function openPdfWorkspace() {
+function getPdfWorkspaceCurrentDocument() {
+    const selected = pdfWorkspaceLassoSelection &&
+        pdfWorkspaceDocuments.find(state =>
+            String(state.docId) === pdfWorkspaceLassoSelection.docId &&
+            state.pageNumber === pdfWorkspaceLassoSelection.pageNumber
+        );
+    return selected || pdfWorkspaceDocuments[0] || null;
+}
+
+function getPdfWorkspacePageText(state) {
+    return [...(state?.pageContainer?.querySelectorAll('.pdf-workspace-text-layer span') || [])]
+        .map(span => span.textContent || '')
+        .filter(Boolean)
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function getPdfWorkspaceAiText(state) {
+    const selection = pdfWorkspaceLassoSelection;
+    if (selection &&
+        String(state?.docId) === selection.docId &&
+        state?.pageNumber === selection.pageNumber) {
+        return selection.text;
+    }
+    return getPdfWorkspacePageText(state);
+}
+
+async function openPdfWorkspace(focusDocId = '') {
+    if (document.body.dataset.page !== 'pdf-workspace') {
+        window.location.href = './pdf-workspace.html';
+        return;
+    }
     const modal = document.getElementById('pdfWorkspaceModal');
     if (!modal) return;
     modal.classList.remove('hidden');
@@ -55,7 +89,12 @@ async function openPdfWorkspace() {
             notebookDb.pdfWorkspace.get('default')
         ]);
         const available = originals
-            .filter(original => notebooks.some(notebook => String(notebook.id) === String(original.notebookId)))
+            .filter(original => {
+                const notebook = notebooks.find(item => String(item.id) === String(original.notebookId));
+                return !notebook ||
+                    (!notebookTombstones[String(notebook.id)] &&
+                        !notebookPurgeTombstones[String(notebook.id)]);
+            })
             .map(original => {
                 const notebook = notebooks.find(item => String(item.id) === String(original.notebookId));
                 return {
@@ -80,9 +119,34 @@ async function openPdfWorkspace() {
                 pageNumber: Math.max(1, Number(item.pageNumber) || 1),
                 zoom: Math.min(2, Math.max(0.6, Number(item.zoom) || 1))
             }));
-        pdfWorkspaceDocuments = storedDocs.length
-            ? storedDocs
-            : available.slice(0, 1).map(item => ({ ...item, pageNumber: 1, zoom: 1 }));
+        const requestedDocId = String(
+            focusDocId || new URLSearchParams(window.location.search).get('id') || ''
+        );
+        const pageParam = new URLSearchParams(window.location.search).get('page');
+        const requestedPageNumber = pageParam === null ? 0 : Number(pageParam);
+        if (requestedDocId && pdfWorkspaceLassoSelection?.docId !== requestedDocId) {
+            pdfWorkspaceLassoSelection = null;
+        }
+        const requestedDoc = storedDocs.find(item => item.docId === requestedDocId) ||
+            available.find(item => item.docId === requestedDocId);
+        pdfWorkspaceDocuments = requestedDoc
+            ? [
+                {
+                    pageNumber: 1,
+                    zoom: 1,
+                    ...requestedDoc,
+                    ...(Number.isInteger(requestedPageNumber) && requestedPageNumber > 0
+                        ? { pageNumber: requestedPageNumber }
+                        : {})
+                },
+                ...storedDocs.filter(item => item.docId !== requestedDoc.docId)
+            ]
+            : storedDocs.length
+                ? storedDocs
+                : available.slice(0, 1).map(item => ({ ...item, pageNumber: 1, zoom: 1 }));
+        if (select.options.length && pdfWorkspaceDocuments.length) {
+            select.value = pdfWorkspaceDocuments[0].docId;
+        }
         renderPdfWorkspaceDocuments();
         await renderPdfWorkspaceSavedItems();
         setPdfWorkspaceStatus(available.length
@@ -96,27 +160,129 @@ async function openPdfWorkspace() {
 }
 
 function closePdfWorkspace() {
+    if (document.body.dataset.page === 'pdf-workspace') {
+        window.location.href = './dashboard.html';
+        return;
+    }
     document.getElementById('pdfWorkspaceModal')?.classList.add('hidden');
 }
 
 async function addPdfWorkspaceDocument(docId) {
     const key = String(docId || '');
-    if (!key || pdfWorkspaceDocuments.some(item => String(item.docId) === key)) return;
-    const notebook = notebooks.find(item => String(item.id) === key);
-    if (!notebook) {
-        setPdfWorkspaceStatus('Das ausgewählte Dokument wurde nicht gefunden.');
-        return;
-    }
+    if (!key) return;
     try {
+        const original = await notebookDb.pdfOriginals.get(key);
+        const notebook = notebooks.find(item => String(item.id) === key);
+        if (!original?.blob) {
+            setPdfWorkspaceStatus('Das ausgewählte Dokument wurde nicht gefunden.');
+            return;
+        }
         await getPdfWorkspacePdf(key);
-        pdfWorkspaceDocuments.push({ docId: key, title: notebook.title || 'PDF-Dokument', pageNumber: 1, zoom: 1 });
+        const title = notebook?.title || original.fileName || 'PDF-Dokument';
+        const existing = pdfWorkspaceDocuments.find(item => String(item.docId) === key);
+        if (pdfWorkspaceDocuments[0]?.docId !== key) pdfWorkspaceLassoSelection = null;
+        const activeDocument = existing || { docId: key, title, pageNumber: 1, zoom: 1 };
+        pdfWorkspaceDocuments = [
+            activeDocument,
+            ...pdfWorkspaceDocuments.filter(item => String(item.docId) !== key)
+        ];
         renderPdfWorkspaceDocuments();
         await persistPdfWorkspace();
-        setPdfWorkspaceStatus(`„${notebook.title}“ wurde geöffnet.`);
+        setPdfWorkspaceStatus(`„${title}“ wurde geöffnet.`);
     } catch (error) {
         console.error('PDF konnte nicht im Arbeitsbereich geöffnet werden:', error);
         setPdfWorkspaceStatus(`PDF konnte nicht geöffnet werden: ${error.message || error}`);
     }
+}
+
+function pointInPdfWorkspacePolygon(point, polygon) {
+    let inside = false;
+    for (let index = 0, previous = polygon.length - 1; index < polygon.length; previous = index, index += 1) {
+        const currentPoint = polygon[index];
+        const previousPoint = polygon[previous];
+        const crosses = (currentPoint.y > point.y) !== (previousPoint.y > point.y) &&
+            point.x < (previousPoint.x - currentPoint.x) *
+                (point.y - currentPoint.y) /
+                (previousPoint.y - currentPoint.y) + currentPoint.x;
+        if (crosses) inside = !inside;
+    }
+    return inside;
+}
+
+function attachPdfWorkspaceLasso(stage, textLayer, state) {
+    let points = [];
+    let polygon = null;
+    let overlay = null;
+    const toPoint = event => {
+        const bounds = stage.getBoundingClientRect();
+        return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+    };
+    const updatePolygon = () => {
+        if (polygon) polygon.setAttribute('points', points.map(point => `${point.x},${point.y}`).join(' '));
+    };
+
+    stage.addEventListener('pointerdown', event => {
+        if (!pdfWorkspaceLassoEnabled || event.button !== 0) return;
+        event.preventDefault();
+        stage.setPointerCapture(event.pointerId);
+        stage.classList.add('is-lasso-mode');
+        stage.querySelectorAll('.pdf-workspace-lasso-selected')
+            .forEach(span => span.classList.remove('pdf-workspace-lasso-selected'));
+        pdfWorkspaceLassoSelection = null;
+        points = [toPoint(event)];
+        overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        overlay.setAttribute('class', 'pdf-workspace-lasso-overlay');
+        overlay.setAttribute('viewBox', `0 0 ${stage.clientWidth} ${stage.clientHeight}`);
+        polygon = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+        overlay.appendChild(polygon);
+        stage.appendChild(overlay);
+        updatePolygon();
+    });
+
+    stage.addEventListener('pointermove', event => {
+        if (!points.length || !pdfWorkspaceLassoEnabled) return;
+        points.push(toPoint(event));
+        updatePolygon();
+    });
+
+    const finishLasso = event => {
+        if (!points.length) return;
+        points.push(toPoint(event));
+        updatePolygon();
+        stage.classList.remove('is-lasso-mode');
+        const spans = [...textLayer.querySelectorAll('span')]
+            .map(span => {
+                const bounds = span.getBoundingClientRect();
+                return {
+                    span,
+                    bounds,
+                    center: {
+                        x: bounds.left + bounds.width / 2 - stage.getBoundingClientRect().left,
+                        y: bounds.top + bounds.height / 2 - stage.getBoundingClientRect().top
+                    }
+                };
+            })
+            .filter(item => pointInPdfWorkspacePolygon(item.center, points))
+            .sort((first, second) =>
+                Math.abs(first.bounds.top - second.bounds.top) > 4
+                    ? first.bounds.top - second.bounds.top
+                    : first.bounds.left - second.bounds.left
+            );
+        spans.forEach(item => item.span.classList.add('pdf-workspace-lasso-selected'));
+        const text = spans.map(item => item.span.textContent || '').join(' ').replace(/\s+/g, ' ').trim();
+        pdfWorkspaceLassoSelection = text
+            ? { docId: String(state.docId), pageNumber: state.pageNumber, text }
+            : null;
+        setPdfWorkspaceStatus(text
+            ? `${text.length.toLocaleString('de-DE')} Zeichen mit Lasso ausgewählt.`
+            : 'Keine PDF-Textstellen im Lasso erkannt.');
+        points = [];
+        polygon = null;
+        overlay = null;
+    };
+
+    stage.addEventListener('pointerup', finishLasso);
+    stage.addEventListener('pointercancel', finishLasso);
 }
 
 function createPdfWorkspaceButton(label, action, docId) {
@@ -234,6 +400,7 @@ async function renderPdfWorkspacePage(state, panel) {
         });
         stage.appendChild(textLayer);
         pageContainer.replaceChildren(stage);
+        attachPdfWorkspaceLasso(stage, textLayer, state);
         state.viewport = viewport;
         state.pageWidth = viewport.width;
         state.pageHeight = viewport.height;
@@ -315,7 +482,9 @@ async function savePdfWorkspaceCitation(event) {
         text: anchor.text,
         note: note.trim(),
         tags: [...new Set(tagText.split(',').map(tag => tag.trim()).filter(Boolean))],
-        documentName: notebook?.title || title,
+        documentName: notebook?.title ||
+            (await notebookDb.pdfOriginals.get(anchor.docId))?.fileName ||
+            title,
         createdAt: new Date().toISOString()
     });
     if (notebook) saveNotebookMetadata(notebook.id);
@@ -415,10 +584,22 @@ async function openPdfWorkspaceAnchor(anchor) {
     let state = pdfWorkspaceDocuments.find(item => String(item.docId) === String(anchor.docId));
     if (!state) {
         const notebook = notebooks.find(item => String(item.id) === String(anchor.docId));
-        if (!notebook) throw new Error('Das Zieldokument ist nicht verfügbar.');
-        state = { docId: String(anchor.docId), title: notebook.title || 'PDF-Dokument', pageNumber: 1, zoom: 1 };
-        pdfWorkspaceDocuments.push(state);
+        const original = await notebookDb.pdfOriginals.get(String(anchor.docId));
+        if (!notebook && !original) throw new Error('Das Zieldokument ist nicht verfügbar.');
+        state = {
+            docId: String(anchor.docId),
+            title: notebook?.title || original?.fileName || 'PDF-Dokument',
+            pageNumber: 1,
+            zoom: 1
+        };
     }
+    if (pdfWorkspaceDocuments[0]?.docId !== String(anchor.docId)) {
+        pdfWorkspaceLassoSelection = null;
+    }
+    pdfWorkspaceDocuments = [
+        state,
+        ...pdfWorkspaceDocuments.filter(item => String(item.docId) !== String(state.docId))
+    ];
     state.pageNumber = anchor.pageNumber;
     state.highlightRect = anchor.rect;
     renderPdfWorkspaceDocuments();
@@ -522,6 +703,22 @@ document.getElementById('pdfWorkspaceModal')?.addEventListener('click', event =>
 document.getElementById('pdfWorkspaceAddDocument')?.addEventListener('click', () => {
     const select = document.getElementById('pdfWorkspaceDocumentSelect');
     void addPdfWorkspaceDocument(select.value);
+});
+document.getElementById('pdfWorkspaceImport')?.addEventListener('click', () => {
+    document.getElementById('documentImportInput')?.click();
+});
+document.getElementById('pdfWorkspaceLasso')?.addEventListener('click', event => {
+    pdfWorkspaceLassoEnabled = !pdfWorkspaceLassoEnabled;
+    event.currentTarget.setAttribute('aria-pressed', String(pdfWorkspaceLassoEnabled));
+    event.currentTarget.classList.toggle('is-active', pdfWorkspaceLassoEnabled);
+    if (!pdfWorkspaceLassoEnabled) {
+        pdfWorkspaceLassoSelection = null;
+        document.querySelectorAll('.pdf-workspace-lasso-selected')
+            .forEach(span => span.classList.remove('pdf-workspace-lasso-selected'));
+    }
+    setPdfWorkspaceStatus(pdfWorkspaceLassoEnabled
+        ? 'Lasso aktiv: Umfahre PDF-Text, den du mit der KI verwenden möchtest.'
+        : 'Lasso-Auswahl beendet.');
 });
 document.getElementById('pdfWorkspaceDocuments')?.addEventListener('click', event => {
     void handlePdfWorkspaceAction(event);

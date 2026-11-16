@@ -128,6 +128,10 @@ function validateBackup(data) {
     if (!data || data.format !== BACKUP_FORMAT || ![1, 2, 3, BACKUP_VERSION].includes(data.version)) {
         throw new Error('Diese Datei ist kein unterstütztes MyNotes-Backup.');
     }
+    if (data.folders === undefined) data.folders = [];
+    if (data.flashcardDecks === undefined) data.flashcardDecks = [];
+    if (data.flashcards === undefined) data.flashcards = [];
+    if (data.audioRecords === undefined) data.audioRecords = [];
     for (const key of ['notebooks', 'pages', 'folders', 'flashcardDecks', 'flashcards', 'audioRecords']) {
         if (!Array.isArray(data[key])) throw new Error(`Das Backup enthält keine gültige Liste „${key}“.`);
     }

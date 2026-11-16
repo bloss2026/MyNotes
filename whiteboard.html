@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="de" translate="no">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>MyNotes &#8211; Whiteboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #FAFAFA;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* Dynamische Hintergrundmuster */
+    .bg-pattern-grid {
+      background-image:
+        linear-gradient(to right, var(--grid-line-color, #E5E7EB) 1px, transparent 1px),
+        linear-gradient(to bottom, var(--grid-line-color, #E5E7EB) 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+
+    .bg-pattern-lined {
+      background-image: linear-gradient(to bottom, var(--grid-line-color, #E5E7EB) 1px, transparent 1px);
+      background-size: 100% 28px;
+    }
+
+    .bg-pattern-blank {
+      background-image: none;
+    }
+
+    /* Schwebende UI-Karten (Undo/Redo, Mini-Map, Sub-Toolbars) */
+    .floating-card {
+      background: #FFFFFF;
+      border-radius: 18px;
+      box-shadow: 0 3px 14px rgba(0, 0, 0, 0.07), 0 0 1px rgba(0, 0, 0, 0.14);
+      border: 1px solid rgba(0, 0, 0, 0.05);
+    }
+
+    /* Aktives Hauptwerkzeug in der oberen blauen Leiste */
+    .top-tool-active {
+      background-color: #FFFFFF;
+      color: #1F2937;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+    }
+
+    /* Schachbrett-Muster für die Radierer-Größenkreise (Screenshot 1141669) */
+    .eraser-checkerboard {
+      background-color: #FFFFFF;
+      background-image:
+        linear-gradient(45deg, #E5E7EB 25%, transparent 25%),
+        linear-gradient(-45deg, #E5E7EB 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #E5E7EB 75%),
+        linear-gradient(-45deg, transparent 75%, #E5E7EB 75%);
+      background-size: 8px 8px;
+      background-position: 0 0, 0 4px, 4px -4px, -4px 0;
+    }
+
+    /* Popover-Menüs */
+    .gn-popover {
+      background: #FFFFFF;
+      border-radius: 18px;
+      box-shadow: 0 12px 36px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.15);
+      border: 1px solid rgba(0, 0, 0, 0.06);
+      transform-origin: top center;
+      animation: popoverIn 0.14s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes popoverIn {
+      from {
+        opacity: 0;
+        transform: translateY(-6px) scale(0.97);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+
+    .popover-caret {
+      position: absolute;
+      top: -6px;
+      width: 12px;
+      height: 12px;
+      background: #FFFFFF;
+      transform: rotate(45deg);
+      border-left: 1px solid rgba(0, 0, 0, 0.06);
+      border-top: 1px solid rgba(0, 0, 0, 0.06);
+    }
+
+    /* iOS-Style Switch Toggle */
+    .ios-switch {
+      width: 44px;
+      height: 26px;
+      background-color: #D1D5DB;
+      border-radius: 9999px;
+      position: relative;
+      transition: background-color 0.2s ease;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+    .ios-switch.active {
+      background-color: #007AFF;
+    }
+    .ios-switch-thumb {
+      width: 22px;
+      height: 22px;
+      background-color: #FFFFFF;
+      border-radius: 9999px;
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+      transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .ios-switch.active .ios-switch-thumb {
+      transform: translateX(18px);
+    }
+
+    /* Editierbare Textfelder auf dem Whiteboard */
+    .wb-textbox {
+      position: absolute;
+      min-width: 110px;
+      min-height: 34px;
+      padding: 6px 10px;
+      border: 1.5px solid #1E55A0;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.92);
+      color: #111827;
+      font-size: 17px;
+      line-height: 1.4;
+      outline: none;
+      cursor: text;
+      user-select: text;
+      -webkit-user-select: text;
+      z-index: 15;
+      box-shadow: 0 2px 8px rgba(30, 85, 160, 0.12);
+    }
+    .wb-textbox:not(:focus) {
+      border-color: transparent;
+      background: transparent;
+      box-shadow: none;
+    }
+    .wb-textbox:hover:not(:focus) {
+      border-color: rgba(30, 85, 160, 0.35);
+    }
+
+    /* Haftnotizen (Notizzettel) */
+    .wb-sticky {
+      position: absolute;
+      width: 170px;
+      min-height: 150px;
+      padding: 14px;
+      border-radius: 10px;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
+      font-size: 15px;
+      line-height: 1.45;
+      color: #1F2937;
+      outline: none;
+      cursor: grab;
+      user-select: text;
+      -webkit-user-select: text;
+      z-index: 14;
+    }
+    .wb-sticky:active {
+      cursor: grabbing;
+    }
+
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(0, 0, 0, 0.18);
+      border-radius: 9999px;
+    }
+
+    #whiteboardViewport { touch-action: none; }
+    #whiteboardCanvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: none; }
+    #whiteboardCanvasHint { position: absolute; inset: 50% auto auto 50%; width: min(320px, 80%); transform: translate(-50%, -50%); color: #64748b; font-size: 13px; line-height: 1.5; text-align: center; pointer-events: none; }
+    #whiteboardBoardList .whiteboard-board-item { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; padding: 8px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; }
+    #whiteboardBoardList .whiteboard-board-item.is-active { border-color: #1e55a0; box-shadow: 0 0 0 2px #1e55a022; }
+    #whiteboardBoardList .whiteboard-board-item button:first-child { flex: 1; min-width: 0; overflow: hidden; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+    #whiteboardBoardList .whiteboard-board-item button:last-child { padding: 4px 8px; border-radius: 8px; }
+    #whiteboardBoardList .whiteboard-board-item button:last-child:hover { background: #f3f4f6; }
+    #whiteboardBoardList .whiteboard-template-add { grid-column: 1 / -1; min-height: 48px; border: 1px dashed #cbd5e1; border-radius: 12px; color: #1e55a0; font-size: 13px; font-weight: 600; }
+    #whiteboardBoardList .whiteboard-template-add:hover { background: #eff6ff; }
+    #whiteboardTitle { user-select: text; -webkit-user-select: text; }
+    #whiteboardColorPalette [data-whiteboard-color].is-selected { outline: 2px solid #1e55a0; outline-offset: 3px; }
+    .whiteboard-text-dialog:not(.hidden) { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; background: #0006; }
+    .whiteboard-text-card { width: min(520px, 100%); max-height: 90vh; overflow: auto; padding: 20px; border-radius: 18px; background: #fff; box-shadow: 0 16px 48px #0003; }
+    .whiteboard-text-card h3 { margin: 0 0 16px; font-size: 18px; font-weight: 600; }
+    .whiteboard-text-card > label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+    .whiteboard-text-card textarea { width: 100%; min-height: 120px; padding: 10px; border: 1px solid #d1d5db; border-radius: 10px; resize: vertical; user-select: text; }
+    .whiteboard-text-format { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+    .whiteboard-text-format label { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+    .whiteboard-text-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+    .whiteboard-text-actions button { padding: 8px 14px; border-radius: 10px; background: #f3f4f6; }
+    .whiteboard-text-actions button[type="submit"] { background: #1e55a0; color: #fff; }
+  </style>
+
+  <meta name="description" content="MyNotes - Whiteboard mit lokaler Speicherung und Synchronisierung">
+  <meta name="theme-color" content="#1E55A0">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/dexie@3.2.7/dist/dexie.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+</head>
+<body id="whiteboardModal" data-page="whiteboard" class="flex flex-col h-screen w-screen overflow-hidden">
+
+  <!-- =====================================================================
+       1. OBERE BLAUE HEADER-LEISTE (#1E55A0)
+       ===================================================================== -->
+  <header id="editorObjectTopbar" class="h-[50px] w-full bg-[#1E55A0] text-white flex items-center justify-between px-2.5 sm:px-4 shrink-0 z-40 shadow-sm relative">
+    
+    <!-- Linke Gruppe: Home, Seitenübersicht-Toggle (rundes Highlight #6E94C8 wenn aktiv), Goodnotes KI -->
+    <div class="flex items-center gap-1.5 sm:gap-2">
+      <!-- Home -->
+      <button id="whiteboardClose" title="Dokumente" class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/15 active:bg-white/25 transition">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 10.5L12 3l9 7.5" />
+          <path d="M5 9.5V19a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 19V9.5" />
+          <path d="M9.5 20.5v-6a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v6" />
+        </svg>
+      </button>
+
+      <!-- Seitenübersicht / Sidebar Toggle -->
+      <button id="btn-sidebar" title="Seitenübersicht" class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/15 transition">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="16" rx="2.5" />
+          <line x1="9" y1="4" x2="9" y2="20" />
+          <line x1="5.5" y1="8" x2="6.8" y2="8" />
+          <line x1="5.5" y1="11.5" x2="6.8" y2="11.5" />
+          <line x1="5.5" y1="15" x2="6.8" y2="15" />
+        </svg>
+      </button>
+
+      <!-- Goodnotes KI (Funkel-Icon) -->
+      <button id="btn-ai" title="Goodnotes KI" class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/15 transition">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 4c0 4.5-3.5 8-8 8 4.5 0 8 3.5 8 8 0-4.5 3.5-8 8-8-4.5 0-8-3.5-8-8z" />
+          <path d="M18.5 4.5v3M17 6h3" />
+        </svg>
+      </button>
+    </div>
+
+    <!-- Gemeinsame Werkzeugleiste fuer Whiteboard und Notizbuch -->
+    <div class="flex items-center gap-1 sm:gap-2.5" data-shared-editor-tools></div>
+
+    <!-- Rechte Gruppe: Hinzufügen (+), Teilen/Exportieren, Mehr Optionen (...) -->
+    <div class="flex items-center gap-1 sm:gap-2">
+      
+      <!-- Hinzufügen (+) Button & Vorlagen-Popover -->
+      <div class="relative">
+        <button id="btn-add-dropdown" title="Hinzufügen" class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/15 transition">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <line x1="12" y1="8" x2="12" y2="16" />
+            <line x1="8" y1="12" x2="16" y2="12" />
+          </svg>
+        </button>
+
+        <!-- POPOVER 3: Hinzufügen / Vorlagen -->
+        <div id="popover-add" class="gn-popover hidden absolute top-11 right-[-42px] sm:right-0 w-[290px] text-gray-800 z-50 pt-4 pb-2">
+          <div class="popover-caret right-[54px] sm:right-[12px]"></div>
+          <div class="px-4">
+            <h3 class="text-[16px] font-semibold text-gray-900">Hinzufügen</h3>
+            <div class="mt-3 text-[11px] font-semibold tracking-wider text-gray-500 uppercase">VORLAGEN</div>
+            <p class="mt-1 text-[13px] text-gray-600 leading-snug">Beschleunige deinen Arbeitsablauf mit Vorlagen</p>
+          </div>
+
+          <div class="mt-2.5 max-h-[260px] overflow-y-auto divide-y divide-gray-100/70">
+            <button data-template="spider" class="template-item w-full px-4 py-2.5 flex items-center gap-3.5 hover:bg-gray-50 active:bg-gray-100 transition text-left">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="6" cy="6" r="2" /><circle cx="18" cy="6" r="2" />
+                <circle cx="18" cy="12" r="2" /><circle cx="18" cy="18" r="2" />
+                <path d="M8 6h8M11 6v12h5M11 12h5" />
+              </svg>
+              <span class="text-[14px] font-medium text-gray-800">Spider Map</span>
+            </button>
+
+            <button data-template="poster" class="template-item w-full px-4 py-2.5 flex items-center gap-3.5 hover:bg-gray-50 active:bg-gray-100 transition text-left">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+                <polyline points="13 11 11 15 14 15 12 19" />
+              </svg>
+              <span class="text-[14px] font-medium text-gray-800">Ideenposter</span>
+            </button>
+
+            <button data-template="flowchart" class="template-item w-full px-4 py-2.5 flex items-center gap-3.5 hover:bg-gray-50 active:bg-gray-100 transition text-left">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="8" y="3" width="8" height="4" rx="1" />
+                <circle cx="5" cy="18" r="2" /><circle cx="12" cy="18" r="2" /><circle cx="19" cy="18" r="2" />
+                <path d="M12 7v4M5 16v-3h14v3M12 11v5" />
+              </svg>
+              <span class="text-[14px] font-medium text-gray-800">Flussdiagramm</span>
+            </button>
+
+            <button data-template="brainstorming" class="template-item w-full px-4 py-2.5 flex items-center gap-3.5 hover:bg-gray-50 active:bg-gray-100 transition text-left">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 18h6M10 21h4" />
+                <path d="M12 3a6 6 0 0 0-3.5 10.8c.6.5 1 1.2 1 2v.2h5v-.2c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z" />
+              </svg>
+              <span class="text-[14px] font-medium text-gray-800">Brainstorming (groß)</span>
+            </button>
+
+            <button data-template="icebreaker" class="template-item w-full px-4 py-2.5 flex items-center gap-3.5 hover:bg-gray-50 active:bg-gray-100 transition text-left">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="9" cy="8" r="3.5" />
+                <path d="M3 19c0-3.3 2.7-6 6-6s6 2.7 6 6" />
+                <path d="M16 5a3.5 3.5 0 0 1 0 7" />
+                <path d="M17 13.5c2.5.6 4 2.8 4 5.5" />
+              </svg>
+              <span class="text-[14px] font-medium text-gray-800">Icebreaker</span>
+            </button>
+          </div>
+
+          <div class="pt-2 pb-1 px-4 border-t border-gray-100">
+            <button id="btn-all-templates" class="w-full py-1.5 text-left text-[14px] font-medium text-[#007AFF] hover:underline">
+              Alle Vorlagen anzeigen
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Teilen / Exportieren -->
+      <button id="btn-export" data-whiteboard-action="export-png" title="Als Bild exportieren" class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/15 transition">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7" />
+          <polyline points="16 6 12 2 8 6" />
+          <line x1="12" y1="2" x2="12" y2="15" />
+        </svg>
+      </button>
+
+      <!-- Mehr Optionen (...) Button & Einstellungs-Popover -->
+      <div class="relative">
+        <button id="whiteboardDocMenuToggle" title="Dokumenteinstellungen" class="w-9 h-9 rounded-full flex items-center justify-center hover:bg-white/15 transition">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <circle cx="8.5" cy="12" r="1" fill="currentColor" />
+            <circle cx="12" cy="12" r="1" fill="currentColor" />
+            <circle cx="15.5" cy="12" r="1" fill="currentColor" />
+          </svg>
+        </button>
+
+        <!-- POPOVER 4: Dokument & Einstellungen -->
+        <div id="whiteboardDocMenu" class="gn-popover hidden absolute top-11 right-0 w-[305px] max-h-[82vh] overflow-y-auto text-gray-800 z-50 py-3">
+          <div class="popover-caret right-[12px]"></div>
+
+          <div class="px-4 pb-3">
+            <input id="whiteboardTitle" type="text" maxlength="120" aria-label="Whiteboard title" value="Unbenanntes Whiteboard" class="w-full bg-transparent text-[17px] font-semibold text-gray-900 outline-none truncate">
+          </div>
+
+          <div class="grid grid-cols-2 px-2 pb-3 border-b border-gray-200/80">
+            <button id="btn-doc-search" class="flex flex-col items-center justify-center py-2 rounded-xl hover:bg-gray-100 transition gap-1.5">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="7" />
+                <line x1="20" y1="20" x2="16.2" y2="16.2" />
+              </svg>
+              <span class="text-[13px] font-medium text-gray-800">Suchen</span>
+            </button>
+
+            <button id="btn-readonly-toggle" class="flex flex-col items-center justify-center py-2 rounded-xl hover:bg-gray-100 transition gap-1.5">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7" />
+                <line x1="8" y1="8" x2="13" y2="8" />
+                <line x1="8" y1="12" x2="11" y2="12" />
+                <circle cx="17.5" cy="16.5" r="3.5" />
+                <circle cx="17.5" cy="16.5" r="1" fill="#1F2937" />
+              </svg>
+              <span id="readonly-label" class="text-[13px] font-medium text-gray-800">Nur lesen</span>
+            </button>
+          </div>
+
+          <div class="py-1.5 border-b border-gray-200/80">
+            <button id="btn-doc-info" class="w-full px-4 py-2.5 flex items-center justify-between hover:bg-gray-50 transition text-left">
+              <div class="flex items-center gap-3.5">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="9" />
+                  <line x1="12" y1="16" x2="12" y2="11" />
+                  <circle cx="12" cy="8" r="0.8" fill="#1F2937" />
+                </svg>
+                <span class="text-[14px] font-medium text-gray-800">Dokumentinfos</span>
+              </div>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+
+            <button id="btn-rename-doc" data-whiteboard-action="rename" class="w-full px-4 py-2.5 flex items-center gap-3.5 hover:bg-gray-50 transition text-left">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                <line x1="13" y1="21" x2="21" y2="21" />
+              </svg>
+              <span class="text-[14px] font-medium text-gray-800">Umbenennen</span>
+            </button>
+          </div>
+
+          <!-- Sektion: Einstellungen -->
+          <div class="pt-3 pb-1.5 border-b border-gray-200/80">
+            <div class="px-4 pb-1.5 text-[15px] font-semibold text-gray-900">Einstellungen</div>
+
+            <button id="btn-cycle-pattern" class="w-full px-4 py-2.5 flex items-center justify-between hover:bg-gray-50 transition text-left">
+              <div class="flex items-center gap-3.5">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="4" y="4" width="16" height="16" rx="3" />
+                  <circle cx="9" cy="9" r="0.8" fill="#1F2937" />
+                  <circle cx="15" cy="9" r="0.8" fill="#1F2937" />
+                  <circle cx="9" cy="15" r="0.8" fill="#1F2937" />
+                  <circle cx="15" cy="15" r="0.8" fill="#1F2937" />
+                  <circle cx="12" cy="12" r="0.8" fill="#1F2937" />
+                </svg>
+                <span class="text-[14px] font-medium text-gray-800">Hintergrundmuster</span>
+              </div>
+              <div class="flex items-center gap-1 text-[13px] text-gray-500">
+                <span id="pattern-value-label">Gepunktet</span>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </div>
+            </button>
+
+            <button id="btn-cycle-bgcolor" class="w-full px-4 py-2.5 flex items-center justify-between hover:bg-gray-50 transition text-left">
+              <div class="flex items-center gap-3.5">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="13.5" cy="6.5" r="0.8" fill="#1F2937" />
+                  <circle cx="17.5" cy="10.5" r="0.8" fill="#1F2937" />
+                  <circle cx="8.5" cy="7.5" r="0.8" fill="#1F2937" />
+                  <circle cx="6.5" cy="12.5" r="0.8" fill="#1F2937" />
+                  <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.9 0 1.6-.7 1.6-1.6 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.9.7-1.6 1.6-1.6H16c3.3 0 6-2.7 6-6 0-4.9-4.5-8.6-10-8.6z" />
+                </svg>
+                <span class="text-[14px] font-medium text-gray-800">Hintergrundfarbe</span>
+              </div>
+              <div class="flex items-center gap-1 text-[13px] text-gray-500">
+                <span id="bgcolor-value-label">Weiß</span>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+              </div>
+            </button>
+
+            <button id="btn-clear-specific" data-whiteboard-action="delete-object" class="w-full px-4 py-2.5 flex items-center gap-3.5 hover:bg-gray-50 transition text-left">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="4" width="6" height="6" rx="1" />
+                <rect x="4" y="14" width="6" height="6" rx="1" />
+                <rect x="14" y="14" width="6" height="6" rx="1" />
+                <line x1="14.5" y1="4.5" x2="19.5" y2="9.5" />
+                <line x1="19.5" y1="4.5" x2="14.5" y2="9.5" />
+              </svg>
+              <span class="text-[14px] font-medium text-gray-800">Bestimmte Objekte löschen</span>
+            </button>
+          </div>
+
+          <!-- Sektion: Objekte ausrichten -->
+          <div class="pt-3 pb-1">
+            <div class="px-4 pb-2 text-[15px] font-semibold text-gray-900">Objekte ausrichten</div>
+
+            <div class="px-4 py-2 flex items-center justify-between">
+              <div class="flex items-center gap-3.5">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="2 2">
+                  <rect x="4" y="4" width="16" height="16" rx="2" />
+                  <line x1="12" y1="4" x2="12" y2="20" stroke-dasharray="none" />
+                  <line x1="4" y1="12" x2="20" y2="12" stroke-dasharray="none" />
+                </svg>
+                <span class="text-[14px] font-medium text-gray-800">Am Raster ausrichten</span>
+              </div>
+              <button id="toggle-snap-grid" class="ios-switch active" aria-pressed="true">
+                <span class="ios-switch-thumb"></span>
+              </button>
+            </div>
+
+            <div class="px-4 py-2 flex items-center justify-between">
+              <div class="flex items-center gap-3.5">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="4" y="4" width="6" height="6" rx="1" />
+                  <rect x="14" y="4" width="6" height="6" rx="1" />
+                  <rect x="4" y="14" width="6" height="6" rx="1" />
+                  <rect x="14" y="14" width="6" height="6" rx="1" />
+                </svg>
+                <span class="text-[14px] font-medium text-gray-800">Objekte ausrichten</span>
+              </div>
+              <button id="toggle-align-objects" class="ios-switch active" aria-pressed="true">
+                <span class="ios-switch-thumb"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- =====================================================================
+       2. HAUPTBEREICH (Seitenansicht-Sidebar + Whiteboard + Sub-Toolbars)
+       ===================================================================== -->
+  <div class="relative flex-1 w-full h-full overflow-hidden flex">
+
+    <!-- LINKE SEITENÜBERSICHT-SIDEBAR (Exakt nach Screenshot 1141670) -->
+    <aside id="sidebarContainer" class="hidden w-[340px] sm:w-[410px] max-w-[52vw] bg-[#FFFFFF] border-r border-gray-200/90 h-full flex-col z-30 shrink-0 shadow-[2px_0_12px_rgba(0,0,0,0.04)]">
+      
+      <!-- Obere Sidebar-Leiste: Auswahl-Häkchen links, mittig Tab-Schalter (Board-Grid aktiv vs. Audio) -->
+      <div class="h-[54px] px-4 border-b border-gray-200/80 flex items-center justify-between relative shrink-0">
+        <!-- Auswahl-Icon (Kreis mit Häkchen) -->
+        <button id="btn-sidebar-select" title="Boards auswählen" class="w-8 h-8 rounded-full flex items-center justify-center text-gray-800 hover:bg-gray-100 transition">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9" />
+            <polyline points="8.5 12.5 10.8 14.8 15.5 9.8" />
+          </svg>
+        </button>
+
+        <!-- Mittiger zweigeteilter Tab-Umschalter (wie im Screenshot 1141670) -->
+        <div class="inline-flex items-center bg-[#EBEBEB] p-[2px] rounded-[11px]">
+          <button id="tab-boards-view" class="px-3.5 py-1.5 rounded-[9px] bg-white border-[1.5px] border-[#007AFF] text-[#007AFF] shadow-xs flex items-center justify-center transition">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="16" rx="3" />
+              <circle cx="8.5" cy="9.5" r="0.9" fill="currentColor" />
+              <circle cx="12" cy="9.5" r="0.9" fill="currentColor" />
+              <circle cx="15.5" cy="9.5" r="0.9" fill="currentColor" />
+              <circle cx="8.5" cy="14.5" r="0.9" fill="currentColor" />
+              <circle cx="12" cy="14.5" r="0.9" fill="currentColor" />
+              <circle cx="15.5" cy="14.5" r="0.9" fill="currentColor" />
+            </svg>
+          </button>
+          <button id="tab-audio-view" class="px-3.5 py-1.5 rounded-[9px] text-gray-700 hover:text-gray-900 flex items-center justify-center transition">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="4" y1="9" x2="4" y2="15" />
+              <line x1="8" y1="6" x2="8" y2="18" />
+              <line x1="12" y1="10" x2="12" y2="14" />
+              <path d="M15 11h5a1 1 0 0 1 1 1v4a1 1 0 0 1-1 1h-3l-2 2v-2" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Platzhalter rechts für optische Zentrierung -->
+        <div class="w-8"></div>
+      </div>
+
+      <!-- Tab 1: Zweispaltiges Grid mit Boards & '+ Board hinzufügen' -->
+      <div id="sidebar-boards-panel" class="p-4 sm:p-5 flex-1 overflow-y-auto">
+        <div id="whiteboardBoardList" class="grid grid-cols-2 gap-4 items-start">
+          <!-- Wird dynamisch per JS gefüllt: 'Board 1' + '+ Board hinzufügen' -->
+        </div>
+      </div>
+
+      <!-- Tab 2: Audio-Aufnahmen Liste -->
+      <div id="sidebar-audio-panel" class="hidden p-5 flex-1 overflow-y-auto flex-col items-center justify-center text-center">
+        <div class="w-12 h-12 rounded-full bg-gray-100 flex items-center justify-center text-gray-400 mb-2.5">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <rect x="9" y="2" width="6" height="11" rx="3" />
+            <path d="M5 10a7 7 0 0 0 14 0" />
+            <line x1="12" y1="17" x2="12" y2="21" />
+          </svg>
+        </div>
+        <div class="text-xs font-semibold text-gray-700">Keine Audioaufnahmen</div>
+        <p class="text-[11px] text-gray-500 mt-1">Starte eine Aufnahme über das Mikrofon-Symbol oben in der Leiste.</p>
+      </div>
+    </aside>
+
+    <!-- HAUPT-CANVAS-CONTAINER -->
+    <main id="whiteboardViewport" class="relative flex-1 h-full overflow-hidden" style="background-color: #FAFAFA;">
+
+      <div data-shared-floating-controls></div>
+
+      <!-- =================================================================
+           MITTIG SCHWEBENDE SUB-TOOLBARS (STIFT-LEISTE & RADIERER-LEISTE)
+           ================================================================= -->
+      
+      <!-- A) STIFT-SUBTOOLBAR (Weiße Pille mit Stift-Typen, Strichstärke, Farben) -->
+      <div id="whiteboardColorPalette" class="hidden absolute top-3 left-1/2 -translate-x-1/2 z-20 floating-card h-[48px] px-2.5 flex items-center gap-1.5">
+        <button data-pen-type="fountain" title="Füllfederhalter" class="pen-type-btn bg-[#BCE3FA] text-[#0F2942] h-9 px-2.5 rounded-xl flex items-center gap-1 transition">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M12 19l7-7 3 3-7 7-3-3z" /><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z" />
+          </svg>
+        </button>
+        <button data-pen-type="ballpoint" title="Kugelschreiber" class="pen-type-btn text-gray-700 hover:bg-gray-100 w-9 h-9 rounded-xl flex items-center justify-center transition">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+          </svg>
+        </button>
+        <button data-pen-type="highlighter" title="Textmarker" class="pen-type-btn text-gray-700 hover:bg-gray-100 w-9 h-9 rounded-xl flex items-center justify-center transition">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M9 11l-6 6v3h9l3-3" /><path d="M22 12l-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4" />
+          </svg>
+        </button>
+
+        <div class="h-5 w-[1px] bg-gray-200 mx-1"></div>
+
+        <!-- 3 Strichstärken -->
+        <button data-width="2.5" class="stroke-opt-btn bg-blue-50 text-[#1E55A0] w-8 h-8 rounded-lg flex items-center justify-center" title="Fein">
+          <span class="w-1.5 h-1.5 rounded-full bg-current"></span>
+        </button>
+        <button data-width="5.5" class="stroke-opt-btn text-gray-700 hover:bg-gray-100 w-8 h-8 rounded-lg flex items-center justify-center" title="Mittel">
+          <span class="w-2.5 h-2.5 rounded-full bg-current"></span>
+        </button>
+        <button data-width="10" class="stroke-opt-btn text-gray-700 hover:bg-gray-100 w-8 h-8 rounded-lg flex items-center justify-center" title="Dick">
+          <span class="w-3.5 h-3.5 rounded-full bg-current"></span>
+        </button>
+
+        <div class="h-5 w-[1px] bg-gray-200 mx-1"></div>
+
+        <!-- Schnellfarben -->
+        <button data-color="#000000" data-whiteboard-color="#000000" class="color-btn w-6 h-6 rounded-full bg-[#000000] ring-2 ring-offset-1 ring-gray-800 transition"></button>
+        <button data-color="#007AFF" data-whiteboard-color="#007AFF" class="color-btn w-6 h-6 rounded-full bg-[#007AFF] transition"></button>
+        <button data-color="#FFFFFF" data-whiteboard-color="#FFFFFF" class="color-btn w-6 h-6 rounded-full bg-[#FFFFFF] border border-gray-300 transition"></button>
+        <label title="Eigene Farbe" class="w-6 h-6 rounded-full border border-dashed border-gray-400 flex items-center justify-center text-gray-600 text-xs cursor-pointer hover:bg-gray-50">
+          +
+          <input id="whiteboardColor" type="color" value="#E11D48" class="sr-only" />
+        </label>
+      </div>
+
+      <!-- B) RADIERER-SUBTOOLBAR (Exakt nach Screenshot 1141669!) -->
+      <div id="eraser-subtoolbar" class="hidden absolute top-3 left-1/2 -translate-x-1/2 z-20 floating-card h-[50px] pl-1.5 pr-3 flex items-center gap-2.5 overflow-hidden">
+        
+        <!-- Links: Weiße abgerundete Pille '[Radierer-Icon] Standard v' -->
+        <div class="relative">
+          <button id="btn-eraser-mode" class="h-[38px] px-3 rounded-[14px] bg-white shadow-[0_1px_4px_rgba(0,0,0,0.08)] border border-gray-200/80 flex items-center gap-2 hover:bg-gray-50 transition">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1F2937" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13l-7.5 7.5a2.12 2.12 0 0 1-3 0l-4-4a2.12 2.12 0 0 1 0-3L11 6a2.12 2.12 0 0 1 3 0l4 4a2.12 2.12 0 0 1 0 3z" />
+              <path d="M7.5 10.5l6 6" />
+            </svg>
+            <span id="eraser-mode-label" class="text-[13.5px] font-medium text-gray-800">Standard</span>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#4B5563" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Zwei-Punkt-Optionen-Icon (wie im Screenshot zwischen 'Standard v' und den Kreisen) -->
+        <button id="btn-eraser-options" title="Radierer-Optionen" class="w-8 h-8 rounded-xl flex items-center justify-center text-gray-700 hover:bg-gray-100 transition">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="6" y="5" width="12" height="5" rx="2.5" />
+            <circle cx="9" cy="7.5" r="1" fill="currentColor" />
+            <rect x="6" y="14" width="12" height="5" rx="2.5" />
+            <circle cx="15" cy="16.5" r="1" fill="currentColor" />
+          </svg>
+        </button>
+
+        <!-- Drei unterschiedlich große Schachbrett-Radierer-Kreise (Screenshot 1141669) -->
+        <div class="flex items-center gap-3">
+          <!-- Klein (Standardmäßig aktiv mit blauem Ring #1A73E8) -->
+          <button data-eraser-size="14" title="Kleiner Radierer" class="eraser-size-btn w-[22px] h-[22px] rounded-full eraser-checkerboard border-[2.5px] border-[#1A73E8] transition shrink-0"></button>
+          
+          <!-- Mittel -->
+          <button data-eraser-size="30" title="Mittlerer Radierer" class="eraser-size-btn w-[32px] h-[32px] rounded-full eraser-checkerboard border-[2.5px] border-[#A3A3A3] hover:border-gray-500 transition shrink-0"></button>
+          
+          <!-- Groß (angeschnitten am oberen/unteren Pillenrand wie im Screenshot!) -->
+          <button data-eraser-size="56" title="Großer Radierer" class="eraser-size-btn w-[56px] h-[56px] rounded-full eraser-checkerboard border-[2.5px] border-[#A3A3A3] hover:border-gray-500 transition shrink-0"></button>
+        </div>
+      </div>
+
+      <!-- INTERAKTIVES LINEAL OVERLAY -->
+      <div id="canvas-ruler" class="hidden absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[460px] max-w-[85vw] h-[54px] bg-amber-100/90 backdrop-blur-xs border border-amber-400/80 rounded-xl shadow-lg z-25 cursor-grab flex flex-col justify-between px-4 py-1.5">
+        <div class="w-full flex justify-between text-[10px] font-mono text-amber-900/80">
+          <span>0 cm</span><span>2</span><span>4</span><span>6</span><span>8</span><span>10</span><span>12</span><span>14</span><span>16 cm</span>
+        </div>
+        <div class="w-full h-3 border-b border-amber-700/40 flex justify-between items-end">
+          <span class="w-[1px] h-3 bg-amber-800"></span><span class="w-[1px] h-1.5 bg-amber-700"></span>
+          <span class="w-[1px] h-3 bg-amber-800"></span><span class="w-[1px] h-1.5 bg-amber-700"></span>
+          <span class="w-[1px] h-3 bg-amber-800"></span><span class="w-[1px] h-1.5 bg-amber-700"></span>
+          <span class="w-[1px] h-3 bg-amber-800"></span><span class="w-[1px] h-1.5 bg-amber-700"></span>
+          <span class="w-[1px] h-3 bg-amber-800"></span>
+        </div>
+      </div>
+
+      <!-- HTML5 ZEICHEN-CANVAS -->
+      <canvas id="whiteboardCanvas" class="block w-full h-full touch-none"></canvas>
+      <div id="whiteboardCanvasHint" class="hidden">Zeichne, f&uuml;ge Objekte ein oder verschiebe die Arbeitsfl&auml;che.</div>
+
+      <!-- EBENEN FÜR TEXTFELDER, HAFTNOTIZEN & VORLAGEN -->
+      <div id="objects-layer" class="absolute inset-0 pointer-events-none overflow-hidden"></div>
+
+      <!-- AUDIO-AUFNAHME INDIKATOR -->
+      <div id="floatingRecorderContainer" class="hidden absolute top-3 right-4 z-30 floating-card px-3.5 py-2 flex items-center gap-3">
+        <span class="w-2.5 h-2.5 rounded-full bg-red-600 animate-pulse"></span>
+        <span id="audio-timer" class="text-xs font-mono font-semibold text-gray-800">00:00</span>
+        <button id="stop-audio-btn" class="text-xs bg-red-50 text-red-600 hover:bg-red-100 px-2.5 py-1 rounded-lg font-medium transition">Stopp</button>
+      </div>
+
+      <!-- SUCHE-OVERLAY -->
+      <div id="search-bar-overlay" class="hidden absolute top-3 right-4 z-30 floating-card px-3 py-2 flex items-center gap-2">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="2">
+          <circle cx="11" cy="11" r="7" /><line x1="20" y1="20" x2="16.2" y2="16.2" />
+        </svg>
+        <input id="search-doc-input" type="text" placeholder="Im Whiteboard suchen..." class="text-xs outline-none w-44 text-gray-800" />
+        <button id="close-search-bar" class="text-gray-400 hover:text-gray-700 text-xs px-1">✕</button>
+      </div>
+
+      <!-- TOAST-BENACHRICHTIGUNG -->
+      <div id="global-toaster" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-50 pointer-events-none transition-all duration-300 opacity-0 translate-y-2">
+        <div id="toast-message" class="bg-gray-900/90 text-white text-xs font-medium px-4 py-2.5 rounded-full shadow-lg"></div>
+      </div>
+
+    </main>
+
+    <!-- Rechte Goodnotes KI Sidebar -->
+    <aside id="goodnotesAISidebar" class="hidden w-72 bg-white border-l border-gray-200 h-full flex-col z-30 shrink-0 shadow-sm">
+      <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between bg-gradient-to-r from-blue-50/60 to-indigo-50/60">
+        <div class="flex items-center gap-2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#1E55A0" stroke-width="2">
+            <path d="M12 4c0 4.5-3.5 8-8 8 4.5 0 8 3.5 8 8 0-4.5 3.5-8 8-8-4.5 0-8-3.5-8-8z" />
+          </svg>
+          <span class="text-sm font-semibold text-gray-800">Goodnotes KI</span>
+        </div>
+        <button id="close-ai-sidebar" class="text-gray-400 hover:text-gray-700 p-1 rounded">✕</button>
+      </div>
+      <div class="p-4 flex-1 overflow-y-auto flex flex-col justify-between">
+        <div id="ai-messages" class="space-y-3">
+          <div class="p-3 rounded-xl bg-gray-50 border border-gray-100 text-xs text-gray-600 leading-relaxed">
+            Hallo! Ich bin dein Goodnotes KI-Assistent. Erstelle neue Boards über die Seitenübersicht links oder füge Vorlagen hinzu.
+          </div>
+        </div>
+        <div class="pt-3 border-t border-gray-100">
+          <div class="flex items-center gap-1.5 bg-gray-100 rounded-xl px-3 py-2">
+            <input id="ai-input" type="text" placeholder="Frage Goodnotes KI..." class="bg-transparent text-xs flex-1 outline-none text-gray-800" />
+            <button id="ai-send" class="text-[#1E55A0] font-semibold text-xs">Senden</button>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- MODAL FÜR UMBENENNEN / OBJEKTE LÖSCHEN / DOKUMENTINFOS -->
+  <div id="custom-modal" class="hidden fixed inset-0 bg-black/30 backdrop-blur-[1px] z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-5 border border-gray-100">
+      <h4 id="modal-title" class="text-base font-semibold text-gray-900">Titel</h4>
+      <div id="modal-body" class="mt-3 text-sm text-gray-600"></div>
+      <div id="modal-actions" class="mt-5 flex justify-end gap-2"></div>
+    </div>
+  </div>
+
+  
+
+  <p id="whiteboardStatus" class="sr-only" role="status" aria-live="polite">Whiteboard loading.</p>
+  <div id="whiteboardSupportControls" hidden aria-hidden="true">
+    <span id="whiteboardSaveStatus">Ready</span>
+    <div id="whiteboardRecentColors"></div>
+    <input id="whiteboardWidth" type="range" min="1" max="60" value="4"><output id="whiteboardWidthValue">4</output>
+    <input id="whiteboardOpacity" type="range" min="10" max="100" value="100"><output id="whiteboardOpacityValue">100%</output>
+    <input id="whiteboardPressure" type="range" min="0" max="100" value="100"><output id="whiteboardPressureValue">100%</output>
+    <input id="whiteboardSmoothing" type="range" min="0" max="90" value="20"><output id="whiteboardSmoothingValue">20%</output>
+    <select id="whiteboardPenType"><option value="fountain">F&uuml;llfederhalter</option><option value="ballpoint">Kugelschreiber</option><option value="pencil">Bleistift</option><option value="fineliner">Fineliner</option><option value="brush">Pinselstift</option><option value="glaze">Lasurstift</option><option value="highlighter">Textmarker</option></select>
+    <input id="whiteboardFillColor" type="color" value="#dbeafe">
+    <input id="whiteboardShapeFill" type="checkbox"><input id="whiteboardShapeDashed" type="checkbox"><input id="whiteboardAutoShape" type="checkbox">
+    <select id="whiteboardEraserMode"><option value="stroke">Whole strokes</option><option value="partial">Partial strokes</option><option value="object">Objects</option><option value="area">Area</option></select>
+    <select id="whiteboardInputMode"><option value="automatic">Automatic</option><option value="stylus-only">Stylus only</option><option value="finger-navigate">Finger navigates</option><option value="finger-draw">Finger draws</option></select>
+    <select id="whiteboardGrid"><option value="none">Blank</option><option value="dots">Dots</option><option value="lines">Lines</option><option value="squares">Grid</option></select>
+    <input id="whiteboardBackground" type="color" value="#FAFAFA">
+    <select id="whiteboardShapeType"><option value="line">Line</option><option value="arrow">Arrow</option><option value="doubleArrow">Double arrow</option><option value="rect">Rectangle</option><option value="roundedRect">Rounded rectangle</option><option value="ellipse">Ellipse</option><option value="triangle">Triangle</option><option value="diamond">Diamond</option><option value="speechBubble">Speech bubble</option><option value="polygon">Polygon</option><option value="freeform">Freeform</option></select>
+  </div>
+  <input id="whiteboardImageInput" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden>
+  <input id="whiteboardPdfInput" type="file" accept="application/pdf,.pdf" hidden>
+  <input id="whiteboardImportInput" type="file" accept=".whiteboard,.zip,application/zip" hidden>
+  <div id="whiteboardTextDialog" class="whiteboard-text-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="whiteboardTextHeading">
+    <form id="whiteboardTextForm" class="whiteboard-text-card">
+      <h3 id="whiteboardTextHeading">Text einf&uuml;gen</h3>
+      <label for="whiteboardTextInput">Text</label>
+      <textarea id="whiteboardTextInput" rows="5" maxlength="10000" required></textarea>
+      <div class="whiteboard-text-format">
+        <label>Schrift<select id="whiteboardTextFont"><option value="Arial, sans-serif">Arial</option><option value="Georgia, serif">Georgia</option><option value="Verdana, sans-serif">Verdana</option><option value="monospace">Monospace</option></select></label>
+        <label>Farbe<input id="whiteboardTextColor" type="color" value="#172554"></label>
+        <label>Gr&ouml;&szlig;e<input id="whiteboardTextSize" type="number" min="10" max="96" value="26"></label>
+        <label>Ausrichtung<select id="whiteboardTextAlign"><option value="left">Links</option><option value="center">Zentriert</option><option value="right">Rechts</option></select></label>
+        <label><input id="whiteboardTextBold" type="checkbox"> Fett</label>
+        <label><input id="whiteboardTextItalic" type="checkbox"> Kursiv</label>
+        <label><input id="whiteboardTextUnderline" type="checkbox"> Unterstrichen</label>
+      </div>
+      <div class="whiteboard-text-actions"><button type="button" id="whiteboardTextCancel">Abbrechen</button><button type="submit">Speichern</button></div>
+    </form>
+  </div>
+  <script>
+    window.MYNOTES_SUPABASE_CONFIG = Object.freeze({
+      url: 'https://ougmidncnjhnxzffynnr.supabase.co',
+      publishableKey: 'sb_publishable_WpJ_arBnO8_S0vvFuVDNAQ_zl0fCM_F'
+    });
+  </script>
+  <script src="editorToolbar.js"></script>
+  <script>window.MyNotesEditorToolbar.mount(document.querySelector('[data-shared-editor-tools]'), 'whiteboard');</script>
+  <script>window.MyNotesEditorToolbar.mountFloating(document.querySelector('[data-shared-floating-controls]'), 'whiteboard');</script>
+  <script src="app.js"></script>
+  <script src="syncManager.js"></script>
+  <script src="whiteboardEngine.js"></script>
+  <script src="whiteboard.js"></script>
+  <script src="whiteboardTemplateAdapter.js"></script>
+  <script src="templateManager.js"></script>
+  <script src="editorState.js"></script>
+  <script src="audioSync.js"></script>
+  <script src="editorCanvas.js"></script>
+  <script src="editorInput.js"></script>
+  <script src="pdfManager.js"></script>
+  <script src="notebookManager.js"></script>
+  <script src="searchManager.js"></script>
+  <script src="crossLinker.js"></script>
+  <script src="ocrManager.js"></script>
+  <script src="pdfWorkspace.js"></script>
+  <script src="appInit.js"></script>
+  <script src="aiAssistant.js"></script>
+
+</body>
+</html>

@@ -1,5 +1,6 @@
 // Supabase authentication, durable sync queue, and conflict resolution
 const CLOUD_USER_DATA_NOTEBOOK_PREFIX = '__mynotes_user_data_v1__:';
+let cloudSyncFollowupRequired = false;
 
 function setCloudStatus(message) {
     const status = document.getElementById('cloudSyncStatus');
@@ -676,7 +677,7 @@ function getCloudUserDataUpdatedAt(record) {
     return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-async function applyCloudUserDataRecord(record) {
+async function applyCloudUserDataRecord(record, userId) {
     const payload = record.payload && typeof record.payload === 'object' ? record.payload : {};
     const syncedRecord = {
         ...payload,
@@ -695,16 +696,25 @@ async function applyCloudUserDataRecord(record) {
         case 'pdf_workspace':
             await notebookDb.pdfWorkspace.put(syncedRecord);
             return;
+        case 'whiteboard':
+            if (!record.deleted_at) await restoreWhiteboardAssetsFromCloud(userId, syncedRecord);
+            syncedRecord.syncBaseUpdatedAt = record.updated_at;
+            await notebookDb.whiteboards.put(syncedRecord);
+            if (whiteboardState?.id === String(syncedRecord.id)) {
+                whiteboardState.syncBaseUpdatedAt = record.updated_at;
+            }
+            return;
         default:
             throw new Error(`Unbekannter synchronisierter Datentyp: ${record.data_type}`);
     }
 }
 
 async function syncCloudUserData(userId, cloudRows) {
-    const [decks, flashcards, workspace] = await Promise.all([
+    const [decks, flashcards, workspace, whiteboards] = await Promise.all([
         notebookDb.flashcardDecks.toArray(),
         notebookDb.flashcards.toArray(),
-        notebookDb.pdfWorkspace.get('default')
+        notebookDb.pdfWorkspace.get('default'),
+        notebookDb.whiteboards.toArray()
     ]);
 
     const localRecords = new Map();
@@ -725,12 +735,13 @@ async function syncCloudUserData(userId, cloudRows) {
     decks.forEach(record => addLocalRecord('flashcard_deck', record));
     flashcards.forEach(record => addLocalRecord('flashcard', record));
     if (workspace) addLocalRecord('pdf_workspace', workspace);
+    whiteboards.forEach(record => addLocalRecord('whiteboard', record));
 
     const remoteRecords = new Map((cloudRows || []).map(row => {
         const record = row.metadata?.mynotesUserDataRecord;
         if (row.metadata?.mynotes_system_record !== 'user-data-v1' ||
             !record || typeof record !== 'object' ||
-            !['flashcard_deck', 'flashcard', 'pdf_workspace'].includes(record.data_type) ||
+            !['flashcard_deck', 'flashcard', 'pdf_workspace', 'whiteboard'].includes(record.data_type) ||
             record.record_id === undefined || record.record_id === null) {
             throw new Error(`Ungültiger Cloud-Datensatz ${row.notebook_id}.`);
         }
@@ -744,18 +755,66 @@ async function syncCloudUserData(userId, cloudRows) {
         ];
     }));
     const keys = new Set([...localRecords.keys(), ...remoteRecords.keys()]);
+    let whiteboardConflictCopies = 0;
 
     for (const key of keys) {
         const local = localRecords.get(key);
         const remote = remoteRecords.get(key);
         if (!local) {
-            await applyCloudUserDataRecord(remote);
+            await applyCloudUserDataRecord(remote, userId);
             continue;
         }
 
         const localTime = getCloudUserDataUpdatedAt(local);
         const remoteTime = Date.parse(remote?.updated_at || '') || 0;
+        if (local.data_type === 'whiteboard' && remote &&
+            !local.deletedAt && !remote.deleted_at &&
+            !local.payload.conflictOf && !remote.payload?.conflictOf) {
+            const baseTime = Date.parse(local.payload.syncBaseUpdatedAt || '') || 0;
+            if (baseTime && localTime > baseTime && remoteTime > baseTime) {
+                const remotePayload = remote.payload && typeof remote.payload === 'object' ? remote.payload : {};
+                await restoreWhiteboardAssetsFromCloud(userId, {
+                    ...remotePayload,
+                    id: remote.record_id,
+                    assetIds: remotePayload.assetIds || []
+                });
+                const now = new Date().toISOString();
+                const localCopy = {
+                    ...local.payload,
+                    id: createWhiteboardId('whiteboard-conflict-local'),
+                    title: `${local.payload.title || 'Whiteboard'} – Konfliktkopie (lokal)`,
+                    createdAt: now,
+                    updatedAt: now,
+                    syncBaseUpdatedAt: remote.updated_at,
+                    conflictOf: local.record_id,
+                    conflictSource: 'local',
+                    deletedAt: null
+                };
+                const cloudCopy = {
+                    ...remotePayload,
+                    id: createWhiteboardId('whiteboard-conflict-cloud'),
+                    title: `${remotePayload.title || 'Whiteboard'} – Konfliktkopie (Cloud)`,
+                    createdAt: now,
+                    updatedAt: now,
+                    syncBaseUpdatedAt: remote.updated_at,
+                    conflictOf: local.record_id,
+                    conflictSource: 'cloud',
+                    deletedAt: null
+                };
+                await notebookDb.whiteboards.bulkAdd([localCopy, cloudCopy]);
+                await applyCloudUserDataRecord(remote, userId);
+                whiteboardConflictCopies += 2;
+                cloudSyncFollowupRequired = true;
+                continue;
+            }
+        }
         if (!remote || localTime > remoteTime) {
+            if (local.data_type === 'whiteboard' && !local.deletedAt) {
+                await uploadWhiteboardAssetsToCloud(userId, local.payload);
+            }
+            const payload = local.data_type === 'whiteboard'
+                ? { ...local.payload, syncBaseUpdatedAt: local.updatedAt }
+                : local.payload;
             const { error } = await cloudClient
                 .from('mynotes_notebooks')
                 .upsert({
@@ -765,7 +824,7 @@ async function syncCloudUserData(userId, cloudRows) {
                         mynotesUserDataRecord: {
                             data_type: local.data_type,
                             record_id: local.record_id,
-                            payload: local.payload
+                            payload
                         }
                     },
                     page_count: 0,
@@ -773,10 +832,17 @@ async function syncCloudUserData(userId, cloudRows) {
                     deleted_at: local.deletedAt
                 }, { onConflict: 'user_id,notebook_id' });
             throwCloudError(error, `Datensatz ${local.data_type}/${local.record_id} konnte nicht synchronisiert werden`);
+            if (local.data_type === 'whiteboard' && !local.deletedAt) {
+                await notebookDb.whiteboards.put(payload);
+                if (whiteboardState?.id === String(payload.id)) {
+                    whiteboardState.syncBaseUpdatedAt = payload.syncBaseUpdatedAt;
+                }
+            }
         } else {
-            await applyCloudUserDataRecord(remote);
+            await applyCloudUserDataRecord(remote, userId);
         }
     }
+    return whiteboardConflictCopies;
 }
 
 async function syncCloudData() {
@@ -933,7 +999,7 @@ async function syncCloudData() {
             saveNotebookMetadata();
             cloudSyncSuppression -= 1;
         }
-        await syncCloudUserData(userId, cloudUserDataRows);
+        const whiteboardConflictCopies = await syncCloudUserData(userId, cloudUserDataRows);
         const pendingConflicts = await notebookDb.syncConflicts.toArray();
         await notebookDb.syncQueue.clear();
         for (const conflict of pendingConflicts) {
@@ -962,6 +1028,8 @@ async function syncCloudData() {
         }
         if (pendingConflicts.length) {
             setCloudStatus(`${pendingConflicts.length} Synchronisierungskonflikt${pendingConflicts.length === 1 ? '' : 'e'} müssen aufgelöst werden.`);
+        } else if (whiteboardConflictCopies) {
+            setCloudStatus(`Synchronisiert · ${whiteboardConflictCopies} Whiteboard-Konfliktkopien wurden angelegt.`);
         } else {
             setCloudStatus(`Synchronisiert um ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}.`);
         }
@@ -981,6 +1049,10 @@ async function syncCloudData() {
         return false;
     } finally {
         cloudSyncTask = null;
+        if (cloudSyncFollowupRequired) {
+            cloudSyncFollowupRequired = false;
+            scheduleCloudSync();
+        }
     }
 }
 

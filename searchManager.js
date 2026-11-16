@@ -159,23 +159,17 @@ async function runGlobalSearch(query) {
                 closeGlobalSearch();
                 try {
                     if (result.citationId) {
-                        await openPdfWorkspace();
-                        await openPdfWorkspaceAnchor(result);
+                        sessionStorage.setItem('mynotes_pending_pdf_citation', String(result.citationId));
+                        window.location.href = './pdf-workspace.html';
                         return;
                     }
-                    await openNotebook(result.notebookId);
-                    if (String(currentNotebookId) !== String(result.notebookId)) {
-                        throw new Error('Das Notizbuch wurde nicht geöffnet.');
-                    }
-                    showNotebookPage(result.pageIndex);
-                    if (result.matchIndex >= 0) {
-                        const textarea = document.getElementById('notebookContent');
-                        if (textarea) {
-                            setEditorTool('text');
-                            textarea.focus();
-                            textarea.setSelectionRange(result.matchIndex, result.matchIndex + query.trim().length);
-                        }
-                    }
+                    const params = new URLSearchParams({
+                        id: String(result.notebookId),
+                        page: String(result.pageIndex),
+                        match: String(result.matchIndex),
+                        query: query.trim()
+                    });
+                    window.location.href = `./notebook.html?${params.toString()}`;
                 } catch (error) {
                     console.error('Suchtreffer konnte nicht geöffnet werden:', error);
                     alert(`Der Suchtreffer konnte nicht geöffnet werden: ${error.message || error}`);
